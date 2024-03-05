@@ -1,5 +1,3 @@
-Certainly! Here's a detailed README for the FFT implementation using OpenMP:
-
 # Fast Fourier Transform (FFT) Implementation using OpenMP
 
 This project implements the Fast Fourier Transform (FFT) algorithm using the Cooley-Tukey radix-2 decimation-in-time (DIT) method. The implementation is optimized for performance using OpenMP parallelization.

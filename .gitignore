@@ -1,5 +1,9 @@
-# Prerequisites
-*.d
+# Build directories
+bin/
+obj/
+lib/
+build/
+dist/
 
 # Object files
 *.o
@@ -7,23 +11,11 @@
 *.obj
 *.elf
 
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Precompiled Headers
-*.gch
-*.pch
-
 # Libraries
 *.lib
 *.a
 *.la
 *.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
 *.so
 *.so.*
 *.dylib
@@ -41,13 +33,59 @@
 *.su
 *.idb
 *.pdb
+gmon.out
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
-*.DS_Store
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+*.log
+
+# Test coverage
+*.gcda
+*.gcno
+*.gcov
+coverage/
+htmlcov/
+
+# Profiling
+callgrind.out.*
+cachegrind.out.*
+perf.data
+perf.data.old
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+.venv
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+.cache/
+
+# Core dumps
+# core
+# core.*
+
+# Output files from examples
+*.txt
+*.dat
+*.png
+*.wav
+spectrum.png
+fft_data.txt
+plot_spectrum.gnu

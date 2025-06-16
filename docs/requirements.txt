@@ -1,0 +1,6 @@
+# Requirements for ReadTheDocs
+mkdocs>=1.5.0
+mkdocs-material>=9.0.0
+pymdown-extensions>=10.0
+mkdocstrings>=0.20.0
+mkdocs-material-extensions>=1.3

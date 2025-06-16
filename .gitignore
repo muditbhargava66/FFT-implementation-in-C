@@ -82,7 +82,7 @@ venv/
 # core.*
 
 # Output files from examples
-*.txt
+# *.txt
 *.dat
 *.png
 *.wav

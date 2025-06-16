@@ -1,0 +1,95 @@
+# Configuration for MkDocs (ReadTheDocs with Markdown)
+site_name: FFT Implementation in C
+site_description: A comprehensive collection of Fast Fourier Transform algorithms in C
+site_author: FFT Study Repository Contributors
+repo_url: https://github.com/muditbhargava66/FFT-implementation-in-C
+repo_name: FFT-implementation-in-C
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+  language: en
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+      primary: indigo
+      accent: indigo
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+      primary: indigo
+      accent: indigo
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          setup_commands:
+            - import sys
+            - sys.path.append('../')
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/muditbhargava66/FFT-implementation-in-C
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - admonition
+  - pymdownx.arithmatex:
+      generic: true
+  - footnotes
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.mark
+  - attr_list
+  - pymdownx.emoji:
+      emoji_index: !!python/name:materialx.emoji.twemoji
+      emoji_generator: !!python/name:materialx.emoji.to_svg
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started.md
+      - Quick Start: quickstart.md
+  - Algorithms:
+      - Overview: algorithms.md
+      - Radix-2 DIT: algorithms/radix2-dit.md
+      - Radix-2 DIF: algorithms/radix2-dif.md
+      - Radix-4: algorithms/radix4.md
+      - Split-Radix: algorithms/split-radix.md
+      - Bluestein: algorithms/bluestein.md
+      - Mixed-Radix: algorithms/mixed-radix.md
+  - Applications:
+      - Overview: applications.md
+      - Audio Spectrum: applications/audio-spectrum.md
+      - Digital Filtering: applications/filtering.md
+      - Convolution: applications/convolution.md
+  - API Reference: api-reference.md
+  - Performance:
+      - Benchmarks: performance.md
+      - Optimization Guide: optimization.md
+  - Contributing: contributing.md
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

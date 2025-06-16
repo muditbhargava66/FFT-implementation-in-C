@@ -5,7 +5,6 @@ site_author: FFT Study Repository Contributors
 repo_url: https://github.com/muditbhargava66/FFT-implementation-in-C
 repo_name: FFT-implementation-in-C
 
-# This fixes the "docs/docs" not found error
 docs_dir: .
 
 theme:
@@ -40,9 +39,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          setup_commands:
-            - import sys
-            - sys.path.append('../')
+          paths: [".."]  # Optional: remove if not using imports outside `docs_dir`
 
 extra:
   social:

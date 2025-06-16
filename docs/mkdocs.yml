@@ -5,6 +5,9 @@ site_author: FFT Study Repository Contributors
 repo_url: https://github.com/muditbhargava66/FFT-implementation-in-C
 repo_name: FFT-implementation-in-C
 
+# This fixes the "docs/docs" not found error
+docs_dir: .
+
 theme:
   name: material
   features:

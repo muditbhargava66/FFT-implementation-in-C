@@ -40,7 +40,13 @@ Performs Radix-2 Decimation-in-Frequency FFT.
 ```c
 void radix4_fft(complex_t* x, int n, fft_direction dir);
 ```
-Performs Radix-4 FFT (size must be power of 4).
+Performs optimized Radix-4 FFT with enhanced reliability.
+
+**Features:**
+- Works for any power of 2 (not just power of 4)
+- Uses reliable radix-2 butterflies internally
+- Enhanced with compiler optimization hints
+- Includes input validation and error checking
 
 ---
 
@@ -246,12 +252,12 @@ typedef struct {
     clock_t start;
     clock_t end;
     double elapsed_ms;
-} timer_t;
+} fft_timer_t;
 ```
 
 #### `timer_start`
 ```c
-void timer_start(timer_t* timer);
+void timer_start(fft_timer_t* timer);
 ```
 Starts timing measurement.
 
@@ -259,13 +265,13 @@ Starts timing measurement.
 
 #### `timer_stop`
 ```c
-void timer_stop(timer_t* timer);
+void timer_stop(fft_timer_t* timer);
 ```
 Stops timing and calculates elapsed time in milliseconds.
 
 **Example:**
 ```c
-timer_t timer;
+fft_timer_t timer;
 timer_start(&timer);
 radix2_dit_fft(signal, n, FFT_FORWARD);
 timer_stop(&timer);
@@ -330,7 +336,7 @@ int main() {
     apply_window_hann(signal, n);
     
     // Perform FFT
-    timer_t timer;
+    fft_timer_t timer;
     timer_start(&timer);
     radix2_dit_fft(signal, n, FFT_FORWARD);
     timer_stop(&timer);

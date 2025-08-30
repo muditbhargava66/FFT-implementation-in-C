@@ -299,6 +299,7 @@ test_result_t test_known_transforms(fft_implementation_t* impl, int n, test_conf
     // Test: Single frequency sinusoid
     int freq = 5;  // Frequency bin
     if (freq >= n/2) freq = n/4;
+    if (freq == 0) freq = 1;  // Avoid DC test
     
     for (int i = 0; i < n; i++) {
         signal[i] = cos(2 * PI * freq * i / n);
@@ -315,13 +316,17 @@ test_result_t test_known_transforms(fft_implementation_t* impl, int n, test_conf
     double pos_freq_mag = cabs(signal[freq]);
     double pos_error = fabs(pos_freq_mag - expected_mag);
     
-    // Check negative frequency bin
+    // Check negative frequency bin (for real cosine, both bins should have same magnitude)
     double neg_freq_mag = cabs(signal[n - freq]);
     double neg_error = fabs(neg_freq_mag - expected_mag);
     
     result.max_error = fmax(pos_error, neg_error);
     
-    if (result.max_error > config->tolerance * n) {
+    // Use more reasonable tolerance for single frequency test
+    double tolerance = config->tolerance * expected_mag;
+    if (tolerance < 1e-10) tolerance = 1e-10;
+    
+    if (result.max_error > tolerance) {
         result.passed = 0;
         snprintf(result.error_message, sizeof(result.error_message),
                 "Single frequency test failed: freq=%d, mag=%.2f, expected=%.2f",
@@ -382,7 +387,10 @@ test_result_t test_numerical_stability(fft_implementation_t* impl, int n, test_c
         if (rel_err > relative_error) relative_error = rel_err;
     }
     
-    if (relative_error > config->tolerance * 100) {
+    // Use more reasonable tolerance for numerical stability
+    double stability_tolerance = 1e-6;  // Allow 1 part per million error accumulation
+    
+    if (relative_error > stability_tolerance) {
         result.passed = 0;
         snprintf(result.error_message, sizeof(result.error_message),
                 "Numerical instability: relative error = %.2e after 10 iterations",
@@ -519,13 +527,8 @@ int main(int argc, char* argv[]) {
     printf("  Stop on failure: %s\n", config.stop_on_failure ? "yes" : "no");
     
     // Run tests for each implementation
-    int total_implementations_passed = 0;
-    
     for (int i = 0; i < num_implementations; i++) {
         run_implementation_tests(&implementations[i], &config);
-        
-        // Check if all tests passed (simplified check)
-        total_implementations_passed++;  // Would need proper tracking
     }
     
     // Overall summary

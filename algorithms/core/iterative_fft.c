@@ -201,6 +201,8 @@ void analyze_iterative_performance() {
     printf("Formula: (n/2) * log2(n) = %d\n", (n/2) * log2n);
 }
 
+#ifndef LIB_BUILD
+
 // Main demonstration
 int main() {
     printf("Iterative FFT Implementation\n");
@@ -265,7 +267,7 @@ int main() {
             x[i] = ((double)rand() / RAND_MAX) * 2.0 - 1.0;
         }
         
-        timer_t timer;
+        fft_timer_t timer;
         timer_start(&timer);
         
         // Run multiple iterations for accuracy
@@ -290,3 +292,5 @@ int main() {
     
     return 0;
 }
+
+#endif /* LIB_BUILD */

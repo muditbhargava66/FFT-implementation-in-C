@@ -1,6 +1,16 @@
 #include "../include/fft_common.h"
 #include "../include/fft_algorithms.h"
-#include <immintrin.h>  // Intel intrinsics
+
+// Platform-specific SIMD includes
+#if defined(__x86_64__) || defined(_M_X64)
+    #include <immintrin.h>  // Intel intrinsics
+    #define SIMD_X86
+#elif defined(__ARM_NEON) || defined(__aarch64__)
+    #include <arm_neon.h>   // ARM NEON intrinsics
+    #define SIMD_NEON
+#else
+    #define SIMD_NONE
+#endif
 
 /**
  * SIMD Optimized FFT Implementation
@@ -98,6 +108,7 @@ void free_simd_complex(complex_float_split_t* arr) {
     free(arr);
 }
 
+#ifdef SIMD_X86
 #ifdef __SSE2__
 // SSE2 optimized butterfly operation
 void butterfly_sse2(float* ar, float* ai, float* br, float* bi, 
@@ -268,7 +279,7 @@ void benchmark_simd_fft() {
                             I * ((double)rand() / RAND_MAX);
         }
         
-        timer_t timer;
+        fft_timer_t timer;
         timer_start(&timer);
         radix2_dit_fft(scalar_data, n, FFT_FORWARD);
         timer_stop(&timer);
@@ -300,6 +311,18 @@ void benchmark_simd_fft() {
         free_complex_array(scalar_data);
     }
 }
+
+#else // SIMD_X86
+
+// Fallback implementations for non-x86 platforms
+void benchmark_simd_fft() {
+    printf("\nSIMD FFT Performance Comparison:\n");
+    printf("================================\n");
+    printf("SIMD optimizations not available on this platform.\n");
+    printf("Using scalar implementations only.\n");
+}
+
+#endif // SIMD_X86
 
 // Main demonstration
 int main() {

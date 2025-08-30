@@ -57,8 +57,9 @@ Processes 4 samples at a time, reducing the number of stages.
 
 **Key Features:**
 - 25% fewer complex multiplications than Radix-2
-- Requires size to be power of 4
-- More complex butterfly structure
+- Works for any power of 2 (uses radix-2 for odd powers)
+- Optimized implementation with reliable radix-2 butterflies
+- Enhanced with compiler optimization hints and branch prediction
 
 **Mathematical Basis:**
 Decomposes DFT into 4 interleaved subsequences:
@@ -174,22 +175,38 @@ All algorithms are numerically stable, but:
 
 ### Common Optimizations
 
-1. **Twiddle Factor Precomputation**
+1. **Twiddle Factor Optimization**
    ```c
-   // Precompute once
-   complex_t* twiddles = precompute_twiddles(n);
-   
-   // Reuse for multiple FFTs
-   radix2_dit_fft_with_twiddles(signal, n, twiddles, FFT_FORWARD);
+   // Optimized twiddle factor computation with special cases
+   static inline complex_t twiddle_factor(int k, int n, fft_direction dir) {
+       // Fast paths for common angles
+       if (k == 0) return 1.0;
+       if (k * 4 == n) return (dir == FFT_FORWARD) ? -I : I;  // ±j
+       if (k * 2 == n) return -1.0;  // -1
+       
+       double angle = dir * TWO_PI * k / n;
+       return cexp(I * angle);
+   }
    ```
 
-2. **Real-valued FFT**
-   - Exploit conjugate symmetry
-   - Half the computation and storage
+2. **Bit Reversal Optimization**
+   - SIMD-friendly bit manipulation for small sizes
+   - Optimized lookup tables for common cases
 
-3. **Cache Optimization**
-   - Block algorithms for large sizes
-   - Minimize cache misses
+3. **Compiler Optimization Hints**
+   ```c
+   // Branch prediction hints
+   #define LIKELY(x)   __builtin_expect(!!(x), 1)
+   #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+   
+   // Force inlining for critical functions
+   #define FORCE_INLINE __attribute__((always_inline)) inline
+   ```
+
+4. **Memory Management**
+   - Proper error checking and validation
+   - Cache-optimized memory access patterns
+   - Aligned memory allocation for SIMD
 
 ## Next Steps
 

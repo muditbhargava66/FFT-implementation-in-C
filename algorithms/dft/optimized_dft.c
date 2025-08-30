@@ -200,7 +200,7 @@ void benchmark_optimizations() {
             x_real[i] = val;
         }
         
-        timer_t timer;
+        fft_timer_t timer;
         
         // Naive DFT
         timer_start(&timer);
@@ -250,6 +250,8 @@ void benchmark_optimizations() {
         free_complex_array(X_real);
     }
 }
+
+#ifndef LIB_BUILD
 
 // Main demonstration
 int main() {
@@ -302,3 +304,5 @@ int main() {
     
     return 0;
 }
+
+#endif /* LIB_BUILD */

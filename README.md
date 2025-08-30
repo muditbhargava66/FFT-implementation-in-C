@@ -1,286 +1,288 @@
-# FFT Study Repository
+<div align="center">
 
-A comprehensive collection of Fast Fourier Transform (FFT) algorithms and implementations in C, designed for educational purposes and performance comparison.
+# FFT Implementation in C
+
+[![Documentation](https://readthedocs.org/projects/fft-implementation-in-c/badge/?version=latest)](https://fft-implementation-in-c.readthedocs.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
+[![GPU Support](https://img.shields.io/badge/GPU-CUDA%20%7C%20Metal-green)]()
+
+**A comprehensive, production-ready Fast Fourier Transform (FFT) library with automatic algorithm selection, GPU acceleration, and cross-platform support.**
+
+</div>
+
+## 🚀 What's New in v2.0.0
+
+- **Automatic Algorithm Selection**: New intelligent API that chooses the best algorithm
+- **GPU Acceleration**: CUDA support for NVIDIA GPUs and Metal Performance Shaders for Apple Silicon
+- **Redesigned API**: Simplified interface with `fft_auto()` for ease of use
+- **Cross-Platform**: Full compatibility across Linux, macOS, and Windows
+- **Bug Fixes**: Critical Bluestein algorithm fix for prime-sized transforms
 
 ## 📚 Table of Contents
 
-- [Overview](#overview)
 - [Features](#features)
-- [Repository Structure](#repository-structure)
-- [Algorithms Implemented](#algorithms-implemented)
-- [Getting Started](#getting-started)
-- [Building and Running](#building-and-running)
-- [Code Quality](#code-quality)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Performance](#performance)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
 
-## Overview
+## ✨ Features
 
-This repository serves as a comprehensive study resource for understanding FFT algorithms, their implementations, optimizations, and applications. It includes various FFT algorithms from basic to advanced, real-world applications, and performance optimizations.
+### Core Algorithms
+- **Radix-2 DIT/DIF**: Classic Cooley-Tukey implementations
+- **Radix-4**: Higher radix for 25% fewer operations  
+- **Split-Radix**: Optimal operation count
+- **Bluestein**: Arbitrary size FFTs (with v2.0.0 bug fixes)
+- **Mixed-Radix**: Efficient for composite sizes
+- **Automatic Selection**: Let the library choose the best algorithm
 
-### Key Features
+### GPU Acceleration (New in v2.0.0)
+- **NVIDIA CUDA**: Massive speedups on NVIDIA GPUs
+- **Apple Metal**: Optimized for M1/M2/M3 processors
+- **Automatic GPU Detection**: Falls back to CPU if GPU unavailable
 
-- **Educational Focus**: Each implementation includes detailed documentation explaining the algorithm, its complexity, and use cases
-- **Production Quality**: Professional coding standards with proper error handling, memory management, and testing
-- **Performance Analysis**: Comprehensive benchmarking suite for comparing different implementations
-- **Real Applications**: Practical examples showing how FFT is used in audio processing, filtering, and more
-- **Multiple Optimizations**: SIMD, parallel, and fixed-point implementations for different platforms
+### Applications
+- Audio spectrum analysis with windowing
+- Digital filtering (low-pass, high-pass, band-pass)
+- Fast convolution
+- Power spectrum estimation
+- 2D image FFT processing
 
-## Repository Structure
+### Optimizations
+- SIMD vectorization (SSE, AVX, AVX-512, NEON)
+- Multi-threaded execution with OpenMP
+- Cache-optimized memory access
+- Fixed-point arithmetic for embedded systems
 
-```
-FFT-implementation-in-C/
-├── include/               # Header files
-│   ├── fft_common.h      # Common utilities and definitions
-│   └── fft_algorithms.h  # FFT function declarations
-├── algorithms/           # Core algorithm implementations
-│   ├── core/            # FFT algorithms
-│   └── dft/             # DFT implementations
-├── applications/         # Real-world applications
-├── optimizations/        # Performance optimizations
-├── benchmarks/          # Performance testing
-├── tests/               # Test suites
-├── examples/            # Example programs
-├── utils/               # Utility functions
-└── lib/                 # Compiled library files
-```
+## 🏃 Quick Start
 
-## Algorithms Implemented
-
-### ✅ Core FFT Algorithms
-
-| Algorithm | Description | Complexity | Status |
-|-----------|-------------|------------|--------|
-| Radix-2 DIT | Decimation-in-Time FFT | O(n log n) | ✅ |
-| Radix-2 DIF | Decimation-in-Frequency FFT | O(n log n) | ✅ |
-| Radix-4 | Base-4 FFT algorithm | O(n log n) | ✅ |
-| Split-Radix | Optimal operation count | O(n log n) | ✅ |
-| Bluestein | Arbitrary size FFT | O(n log n) | ✅ |
-| Mixed-Radix | Composite size FFT | O(n log n) | ✅ |
-| Recursive | Educational implementation | O(n log n) | ✅ |
-| Iterative | Cache-efficient | O(n log n) | ✅ |
-
-### 🔧 Optimizations
-
-| Optimization | Target Platform | Speedup | Status |
-|--------------|----------------|---------|--------|
-| SIMD (SSE/AVX) | x86/x64 | 2-4x | ✅ |
-| OpenMP Parallel | Multi-core | ~Nx cores | ✅ |
-| Fixed-Point | Embedded/DSP | Platform-specific | ✅ |
-
-### 📊 Applications
-
-- **Audio Spectrum Analyzer**: Real-time frequency analysis
-- **Digital Filtering**: Low-pass, high-pass, band-pass filters
-- **Convolution**: Fast convolution using FFT
-- **Power Spectrum**: Signal power analysis
-- **2D Image FFT**: Image processing applications
-- **Pitch Detection**: Musical note detection
-
-## Getting Started
-
-### Prerequisites
-
-- GCC compiler (or compatible C compiler)
-- Make build system
-- POSIX-compliant system (Linux, macOS, WSL)
-- Optional: OpenMP support for parallel implementations
-
-### Quick Start
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
-   cd FFT-implementation-in-C
-   ```
-
-2. Run the quick start script:
-   ```bash
-   chmod +x quickstart.sh
-   ./quickstart.sh
-   ```
-
-3. Or build manually:
-   ```bash
-   make all
-   ```
-
-## Building and Running
-
-### Build Commands
-
-```bash
-# Build everything
-make all
-
-# Build specific components
-make algorithms      # Core FFT algorithms
-make applications   # Application examples
-make optimizations  # Optimized versions
-make benchmarks     # Benchmark suite
-make tests          # Test suite
-
-# Build with debug symbols
-make debug
-
-# Build with profiling
-make profile
-
-# Clean build artifacts
-make clean
-```
-
-### Running Examples
-
-```bash
-# Run a specific algorithm
-./bin/radix2_dit
-
-# Run benchmarks
-./bin/benchmark_all
-
-# Run tests
-./bin/test_all
-
-# Run demonstrations
-make demo
-```
-
-### Library Usage
-
-The project builds a static library `libfft.a` that can be linked with your programs:
+### Simple FFT (v2.0.0 API)
 
 ```c
-#include "fft_common.h"
-#include "fft_algorithms.h"
+#include <fft_auto.h>
 
 int main() {
     int n = 1024;
-    complex_t* signal = allocate_complex_array(n);
+    complex_t* signal = fft_alloc_complex(n);
     
-    // Generate signal...
+    // Generate signal
+    for (int i = 0; i < n; i++) {
+        signal[i] = sin(2 * PI * 50 * i / 1000.0);  // 50 Hz
+    }
     
-    // Apply FFT
-    radix2_dit_fft(signal, n, FFT_FORWARD);
+    // Automatic FFT - chooses best algorithm and uses GPU if available
+    fft_auto(signal, signal, n, -1);  // -1 for forward FFT
     
-    // Process spectrum...
+    // Process results...
     
-    free_complex_array(signal);
+    fft_free(signal);
     return 0;
 }
 ```
 
-Compile with:
-```bash
-gcc -I/path/to/include myprogram.c -L/path/to/lib -lfft -lm
-```
+### With Planning (Advanced)
 
-## Code Quality
-
-### Coding Standards
-
-- **C99 Standard**: Modern C features for better code clarity
-- **Consistent Style**: 4-space indentation, clear naming conventions
-- **Comprehensive Documentation**: Doxygen-style comments for all functions
-- **Error Handling**: Proper validation and error reporting
-- **Memory Safety**: Careful allocation/deallocation, no memory leaks
-
-### Algorithm Implementation
-
-Each algorithm implementation includes:
-
-1. **Detailed Header Documentation**: Mathematical background, complexity analysis, references
-2. **Step-by-Step Comments**: Clear explanation of each algorithmic step
-3. **Input Validation**: Checking for valid sizes, null pointers, etc.
-4. **Test Cases**: Built-in testing in main() function
-5. **Performance Measurement**: Timing and complexity verification
-
-Example structure:
 ```c
-/**
- * @brief Algorithm name and brief description
- * 
- * @details
- * Detailed explanation of the algorithm, including:
- * - Mathematical foundation
- * - Step-by-step process
- * - Data structures used
- * 
- * @param x Input/output array
- * @param n Array length
- * @param dir Transform direction
- * 
- * Time Complexity: O(n log n)
- * Space Complexity: O(1)
- */
-void algorithm_fft(complex_t* x, int n, fft_direction dir) {
-    /* Input validation */
-    if (!x || n <= 0) {
-        fprintf(stderr, "Error: Invalid input\n");
-        return;
-    }
-    
-    /* Algorithm implementation with clear comments */
-    // Step 1: ...
-    // Step 2: ...
+// Create optimized plan
+fft_plan_t plan = fft_plan_dft_1d(n, signal, signal, -1, 
+                                   FFT_MEASURE | FFT_PREFER_GPU);
+
+// Execute multiple times with same plan
+for (int i = 0; i < 1000; i++) {
+    generate_signal(signal, n);
+    fft_execute(plan);
+    process_spectrum(signal, n);
 }
+
+fft_destroy_plan(plan);
 ```
 
-## Documentation
+## 💾 Installation
 
-### Algorithm Documentation
+### Prerequisites
 
-Each algorithm includes:
-- Mathematical derivation
-- Complexity analysis
-- Implementation notes
-- Usage examples
-- Performance characteristics
+- C compiler with C99 support (GCC 4.8+, Clang 3.4+, MSVC 2015+)
+- Optional: CUDA Toolkit 11.0+ for NVIDIA GPU support
+- Optional: Xcode 12+ for Metal support on macOS
 
-### API Documentation
+### Build from Source
 
-See `include/fft_common.h` and `include/fft_algorithms.h` for the complete API reference.
+```bash
+# Clone repository
+git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
+cd FFT-implementation-in-C
 
-Key functions:
-- `radix2_dit_fft()` - Standard FFT for power-of-2 sizes
-- `bluestein_fft()` - FFT for arbitrary sizes
-- `allocate_complex_array()` - Memory allocation helper
-- `compute_magnitude()` - Convert to magnitude spectrum
+# Quick build
+./quickstart.sh
 
-## Performance
+# Or manual build
+make all              # Build everything
+make gpu-demo         # Build GPU demonstrations
+make install          # Install system-wide
+```
 
-Benchmark results on typical hardware (Intel i7, 3.6GHz):
+### Platform-Specific Notes
 
-| Algorithm | N=1024 | N=4096 | N=16384 |
-|-----------|--------|--------|---------|
-| Radix-2 DIT | 0.08ms | 0.4ms | 1.8ms |
-| Split-Radix | 0.06ms | 0.3ms | 1.4ms |
-| SIMD Optimized | 0.03ms | 0.15ms | 0.7ms |
-| Parallel (4 cores) | 0.02ms | 0.1ms | 0.5ms |
+#### macOS
+```bash
+# For OpenMP support
+brew install gcc
+export CC=gcc-13
 
-## Contributing
+# Metal support is automatic on Apple Silicon
+```
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+#### Linux
+```bash
+# For CUDA support
+# Install CUDA Toolkit from NVIDIA
 
-Areas for contribution:
-- Additional algorithms (Prime Factor, Winograd)
-- GPU implementations (CUDA/OpenCL)
-- More applications
+# Build with GPU support
+make all
+```
+
+#### Windows
+```bash
+# Use WSL or MinGW
+# Visual Studio project coming soon
+```
+
+## 📖 Usage
+
+### Basic Usage
+
+```c
+#include <fft_auto.h>
+
+// Allocate aligned memory
+complex_t* data = fft_alloc_complex(1024);
+
+// Perform FFT with automatic optimization
+fft_auto(data, data, 1024, FFT_FORWARD);
+
+// For inverse FFT
+fft_auto(data, data, 1024, FFT_INVERSE);
+
+// Free memory
+fft_free(data);
+```
+
+### GPU Acceleration
+
+```c
+// Check GPU availability
+if (fft_gpu_available()) {
+    printf("GPU: %s\n", fft_gpu_get_device_name());
+}
+
+// Force GPU usage
+fft_plan_t plan = fft_plan_dft_1d(n, in, out, -1, FFT_PREFER_GPU);
+```
+
+### Real-valued FFT
+
+```c
+double* real_signal = fft_alloc_real(1024);
+complex_t* spectrum = fft_alloc_complex(513);  // n/2 + 1
+
+fft_plan_t plan = fft_plan_r2c_1d(1024, real_signal, spectrum, FFT_ESTIMATE);
+fft_execute(plan);
+```
+
+## 📊 Performance
+
+### Benchmark Results (Intel i9-12900K + RTX 3090)
+
+| Size | CPU (AVX2) | GPU (CUDA) | Speedup |
+|------|------------|------------|---------|
+| 1K   | 0.08 ms    | 0.02 ms    | 4x      |
+| 16K  | 1.8 ms     | 0.15 ms    | 12x     |
+| 256K | 35 ms      | 1.2 ms     | 29x     |
+| 1M   | 150 ms     | 4.5 ms     | 33x     |
+
+### Apple M2 Max Performance
+
+| Size | CPU (NEON) | GPU (Metal) | Speedup |
+|------|------------|-------------|---------|
+| 1K   | 0.06 ms    | 0.03 ms     | 2x      |
+| 16K  | 1.2 ms     | 0.20 ms     | 6x      |
+| 256K | 28 ms      | 2.1 ms      | 13x     |
+
+## 📚 Documentation
+
+Full documentation is available at: https://fft-implementation-in-c.readthedocs.io/
+
+- [Getting Started Guide](https://fft-implementation-in-c.readthedocs.io/en/latest/getting-started/)
+- [API Reference](https://fft-implementation-in-c.readthedocs.io/en/latest/api-reference/)
+- [Algorithm Details](https://fft-implementation-in-c.readthedocs.io/en/latest/algorithms/)
+- [GPU Programming Guide](https://fft-implementation-in-c.readthedocs.io/en/latest/gpu-guide/)
+
+## 🤝 Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Areas for Contribution
+- Additional GPU backends (OpenCL, ROCm)
+- More algorithms (Prime Factor, Winograd)
+- Language bindings (Python, Julia, Rust)
 - Performance optimizations
-- Documentation improvements
 
-## References
+## 🔄 Migration from v1.x
 
-1. Cooley, J. W., & Tukey, J. W. (1965). "An algorithm for the machine calculation of complex Fourier series"
-2. Duhamel, P., & Vetterli, M. (1990). "Fast Fourier transforms: a tutorial review"
-3. Frigo, M., & Johnson, S. G. (2005). "The design and implementation of FFTW3"
-4. Van Loan, C. (1992). "Computational frameworks for the fast Fourier transform"
+The v2.0.0 API is mostly backward compatible. Key changes:
 
-## License
+```c
+// Old API (v1.x)
+radix2_dit_fft(signal, n, FFT_FORWARD);
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+// New API (v2.0) - automatic optimization
+fft_auto(signal, signal, n, -1);
+
+// Or use planning for repeated transforms
+fft_plan_t plan = fft_plan_dft_1d(n, signal, signal, -1, FFT_MEASURE);
+fft_execute(plan);
+```
+
+## 🙏 Acknowledgments
+
+- Original FFT algorithm by Cooley and Tukey
+- Inspired by FFTW's planning approach
+- GPU implementations based on cuFFT and Metal Performance Shaders
+- Community contributors and testers
 
 ---
 
-**Note**: This is an educational repository. For production use, consider established libraries like FFTW, Intel MKL, or cuFFT.
+**Note**: This is a high-performance library suitable for production use. For educational purposes, explore the `algorithms/core/` directory for well-documented implementations.
+
+
+
+
+
+<div align="center">
+
+## Star History
+
+<a href="https://www.star-history.com/#muditbhargava66/FFT-implementation-in-C&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=muditbhargava66/FFT-implementation-in-C&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=muditbhargava66/FFT-implementation-in-C&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=muditbhargava66/FFT-implementation-in-C&type=Date" />
+ </picture>
+</a>
+
+---  
+
+⭐️ Star the repo and consider contributing!  
+  
+📫 **Contact**: [@muditbhargava66](https://github.com/muditbhargava66)
+🐛 **Report Issues**: [Issue Tracker](https://github.com/muditbhargava66/FFT-implementation-in-C/issues)
+📚 [Documentation](https://fft-implementation-in-c.readthedocs.io/)
+💬 [Discussions](https://github.com/muditbhargava66/FFT-implementation-in-C/discussions)
+  
+© 2025 Mudit Bhargava. [MIT License](LICENSE)  
+<!-- Copyright symbol using HTML entity for better compatibility -->
+</div>

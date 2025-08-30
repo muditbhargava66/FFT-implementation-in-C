@@ -87,6 +87,7 @@ nav:
   - Performance:
       - Benchmarks: performance.md
       - Optimization Guide: optimization.md
+      - v2.0.0 Optimizations: optimizations.md
   - Contributing: contributing.md
 
 extra_javascript:

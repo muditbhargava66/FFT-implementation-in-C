@@ -300,7 +300,7 @@ int main() {
         memcpy(spectrum[i], test_image[i], cols * sizeof(complex_t));
     }
     
-    timer_t timer;
+    fft_timer_t timer;
     timer_start(&timer);
     fft_2d(spectrum, rows, cols, FFT_FORWARD);
     timer_stop(&timer);

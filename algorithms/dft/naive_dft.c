@@ -305,7 +305,7 @@ int main() {
     }
     
     /* Forward DFT */
-    timer_t timer;
+    fft_timer_t timer;
     timer_start(&timer);
     dft_forward(signal, n);
     timer_stop(&timer);

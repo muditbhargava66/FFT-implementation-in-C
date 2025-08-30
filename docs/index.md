@@ -40,6 +40,7 @@ The Fast Fourier Transform (FFT) is one of the most important algorithms in digi
 - **[API Reference](api-reference.md)**: Complete function documentation
 - **[Applications](applications.md)**: Real-world usage examples
 - **[Performance Guide](performance.md)**: Benchmarks and optimization tips
+- **[Optimizations](optimizations.md)**: v2.0.0 performance improvements and techniques
 
 ## Mathematical Background
 

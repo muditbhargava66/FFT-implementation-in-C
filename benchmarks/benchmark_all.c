@@ -120,7 +120,7 @@ benchmark_result_t run_single_benchmark(fft_impl_t* impl, complex_t* input, int 
     impl->forward(test, n, FFT_FORWARD);
     
     // Time forward FFT
-    timer_t timer;
+    fft_timer_t timer;
     timer_start(&timer);
     
     for (int iter = 0; iter < iterations; iter++) {

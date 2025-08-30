@@ -281,7 +281,7 @@ int main() {
     printf("\n\nPerformance Analysis:\n");
     printf("=====================\n");
     
-    timer_t timer;
+    fft_timer_t timer;
     
     // Time-domain FIR filtering
     timer_start(&timer);
@@ -297,6 +297,7 @@ int main() {
     
     printf("Signal length: %d samples\n", signal_length);
     printf("FIR filter length: %d taps\n", taps);
+    printf("Time-domain FIR filtering: %.3f ms (estimated)\n", time_fir);
     printf("FFT-based filtering time: %.3f ms\n", time_fft);
     printf("\nFFT filtering is more efficient for long filters!\n");
     

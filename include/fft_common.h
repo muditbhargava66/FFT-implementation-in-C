@@ -9,6 +9,17 @@
 #include <string.h>
 #include <assert.h>
 
+// Compiler optimization hints
+#ifdef __GNUC__
+    #define LIKELY(x)   __builtin_expect(!!(x), 1)
+    #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+    #define FORCE_INLINE __attribute__((always_inline)) inline
+#else
+    #define LIKELY(x)   (x)
+    #define UNLIKELY(x) (x)
+    #define FORCE_INLINE inline
+#endif
+
 // Constants
 #define PI 3.14159265358979323846
 #define TWO_PI (2.0 * PI)
@@ -23,8 +34,8 @@ typedef enum {
 } fft_direction;
 
 // Common utility functions
-static inline int is_power_of_two(int n) {
-    return n > 0 && (n & (n - 1)) == 0;
+static FORCE_INLINE int is_power_of_two(int n) {
+    return LIKELY(n > 0) && ((n & (n - 1)) == 0);
 }
 
 static inline int next_power_of_two(int n) {
@@ -44,8 +55,19 @@ static inline int log2_int(int n) {
     return log;
 }
 
-// Bit reversal function
+// Bit reversal function with optimization for small sizes
 static inline unsigned int bit_reverse(unsigned int x, int log2n) {
+    // Optimized bit reversal for common small sizes
+    if (log2n <= 8) {
+        // Use bit manipulation tricks for small sizes
+        x = ((x & 0xAAAA) >> 1) | ((x & 0x5555) << 1);
+        x = ((x & 0xCCCC) >> 2) | ((x & 0x3333) << 2);
+        x = ((x & 0xF0F0) >> 4) | ((x & 0x0F0F) << 4);
+        if (log2n > 4) x = ((x & 0xFF00) >> 8) | ((x & 0x00FF) << 8);
+        return x >> (16 - log2n);
+    }
+    
+    // General case for larger sizes
     unsigned int r = 0;
     for (int i = 0; i < log2n; i++) {
         r = (r << 1) | (x & 1);
@@ -63,24 +85,30 @@ static inline void free_complex_array(complex_t* arr) {
     if (arr) free(arr);
 }
 
-// Twiddle factor computation
+// Twiddle factor computation with optimization for common cases
 static inline complex_t twiddle_factor(int k, int n, fft_direction dir) {
+    // Optimize for common cases
+    if (k == 0) return 1.0;
+    if (k * 4 == n) return (dir == FFT_FORWARD) ? -I : I;  // ±j
+    if (k * 2 == n) return -1.0;  // -1
+    if (k * 4 == 3 * n) return (dir == FFT_FORWARD) ? I : -I;  // ∓j
+    
     double angle = dir * TWO_PI * k / n;
     return cexp(I * angle);
 }
 
-// Performance timing
+// Performance timing (renamed to avoid conflict with system timer_t)
 typedef struct {
     clock_t start;
     clock_t end;
     double elapsed_ms;
-} timer_t;
+} fft_timer_t;
 
-static inline void timer_start(timer_t* timer) {
+static inline void timer_start(fft_timer_t* timer) {
     timer->start = clock();
 }
 
-static inline void timer_stop(timer_t* timer) {
+static inline void timer_stop(fft_timer_t* timer) {
     timer->end = clock();
     timer->elapsed_ms = ((double)(timer->end - timer->start) / CLOCKS_PER_SEC) * 1000.0;
 }

@@ -221,7 +221,7 @@ int main() {
     print_complex_array("Input signal", signal, n);
     
     /* Forward FFT */
-    timer_t timer;
+    fft_timer_t timer;
     timer_start(&timer);
     fft_radix2_dit(signal, n);
     timer_stop(&timer);

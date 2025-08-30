@@ -192,7 +192,7 @@ void benchmark_convolution() {
             h[j] = ((double)rand() / RAND_MAX) * 2.0 - 1.0;
         }
         
-        timer_t timer;
+        fft_timer_t timer;
         
         // Time direct convolution
         timer_start(&timer);

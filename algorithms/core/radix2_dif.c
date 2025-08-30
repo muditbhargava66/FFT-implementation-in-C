@@ -67,6 +67,8 @@ void ifft_radix2_dif(complex_t* x, int n) {
     radix2_dif_fft(x, n, FFT_INVERSE);
 }
 
+#ifndef LIB_BUILD
+
 // Demonstration and comparison with DIT
 int main() {
     int n = 16;
@@ -90,7 +92,7 @@ int main() {
     printf("...\n\n");
     
     // Compare DIT and DIF results
-    timer_t timer_dit, timer_dif;
+    fft_timer_t timer_dit, timer_dif;
     
     timer_start(&timer_dit);
     radix2_dit_fft(signal_dit, n, FFT_FORWARD);
@@ -163,3 +165,5 @@ int main() {
     
     return 0;
 }
+
+#endif /* LIB_BUILD */

@@ -111,6 +111,8 @@ void count_recursion_stats(int n, int depth, recursion_stats_t* stats) {
     }
 }
 
+#ifndef LIB_BUILD
+
 // Demonstration and analysis
 int main() {
     printf("Recursive FFT Implementation\n");
@@ -164,7 +166,7 @@ int main() {
             x_rec[i] = x_iter[i] = val;
         }
         
-        timer_t timer;
+        fft_timer_t timer;
         
         // Time recursive FFT
         timer_start(&timer);
@@ -239,3 +241,5 @@ int main() {
     
     return 0;
 }
+
+#endif /* LIB_BUILD */

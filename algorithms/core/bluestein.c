@@ -55,9 +55,9 @@ static complex_t* compute_chirp_sequence(int n, fft_direction dir) {
         return NULL;
     }
     
-    /* Compute exp(dir * i * π * k² / n) for each k */
+    /* Compute exp(-dir * i * π * k² / n) for each k */
     for (int k = 0; k < n; k++) {
-        double phase = dir * PI * k * k / n;
+        double phase = -dir * PI * k * k / n;
         chirp[k] = cexp(I * phase);
     }
     
@@ -210,7 +210,7 @@ int main() {
         }
         
         /* Time Bluestein's algorithm */
-        timer_t timer;
+        fft_timer_t timer;
         timer_start(&timer);
         fft_bluestein(x_blue, n);
         timer_stop(&timer);

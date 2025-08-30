@@ -380,7 +380,7 @@ int main() {
             signal[i] = ((double)rand() / RAND_MAX - 0.5);
         }
         
-        timer_t timer;
+        fft_timer_t timer;
         
         // Time periodogram
         timer_start(&timer);

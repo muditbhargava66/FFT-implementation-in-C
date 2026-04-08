@@ -87,14 +87,12 @@ static inline void free_complex_array(complex_t* arr) {
 
 // Twiddle factor computation with optimization for common cases
 static inline complex_t twiddle_factor(int k, int n, fft_direction dir) {
-    // Optimize for common cases
     if (k == 0) return 1.0;
-    if (k * 4 == n) return (dir == FFT_FORWARD) ? -I : I;  // ±j
-    if (k * 2 == n) return -1.0;  // -1
-    if (k * 4 == 3 * n) return (dir == FFT_FORWARD) ? I : -I;  // ∓j
-    
+    if (k * 4 == n) return (dir == FFT_FORWARD) ? -I : I;
+    if (k * 2 == n) return -1.0;
+
     double angle = dir * TWO_PI * k / n;
-    return cexp(I * angle);
+    return cos(angle) + I * sin(angle);
 }
 
 // Performance timing (renamed to avoid conflict with system timer_t)

@@ -11,6 +11,7 @@ Thank you for your interest in contributing to this educational FFT repository! 
 - [Code Standards](#code-standards)
 - [Testing Requirements](#testing-requirements)
 - [Documentation](#documentation)
+- [Security](#security)
 - [Submitting Changes](#submitting-changes)
 
 ## Code of Conduct
@@ -34,7 +35,17 @@ This project adheres to a code of conduct that all contributors are expected to 
    ```bash
    git remote add upstream https://github.com/originalowner/FFT-implementation-in-C.git
    ```
-4. Create a new branch for your feature:
+3. **Build the project**:
+   ```bash
+   cmake -S . -B build
+   cmake --build build --config Release
+   ```
+4. **Run tests**:
+   ```bash
+   cd build
+   ctest --output-on-failure
+   ```
+5. Create a new branch for your feature:
    ```bash
    git checkout -b feature/your-feature-name
    ```
@@ -50,14 +61,45 @@ We welcome the following types of contributions:
    - Add optimized versions for specific use cases
 
 2. **Performance Optimizations**
-   - SIMD implementations for different architectures
+   - SIMD implementations for different architectures. An earlier
+     `optimizations/` directory held SSE2/AVX and pthreads/OpenMP kernels, but
+     nothing declared them in a header and nothing called them, so they were
+     unreachable and have been deleted. A new one has to be selectable from
+     `select_algorithm()`, verified against the direct DFT in `tests/test_all.c`,
+     and measured — and the library has to become thread-safe first, since
+     selection and the wisdom cache share unlocked globals
    - Cache-aware algorithms
-   - GPU implementations (CUDA/OpenCL)
+   - GPU implementations (CUDA/OpenCL). The dispatch layer in `fft_auto.c`
+     already exists; what is missing is a backend that has been run against real
+     hardware
 
 3. **Applications**
    - Signal processing examples
    - Real-world use cases
    - Educational demonstrations
+
+#### Windows-Specific Guidelines
+- **Build System**: Use CMake for all builds
+- **Testing**: All checks must pass on Windows (currently 1361/1361 with MinGW-w64 GCC)
+- **Unicode Output**: Ensure proper Windows console Unicode support
+- **Path Handling**: Use appropriate path separators
+- **Memory Alignment**: `fft_alloc_complex` returns 64-byte aligned buffers and
+  `allocate_complex_array` 32-byte aligned ones on Windows. That alignment is for
+  cache-line and page behaviour, not for SIMD — there is no vector code in this
+  library
+
+#### Windows Testing
+```cmd
+# Run comprehensive test suite
+.\build\bin\test_all.exe
+
+# Run performance benchmarks
+.\build\bin\benchmark_all.exe
+```
+
+**Windows status**: 1361/1361 checks pass with no compiler warnings under
+MinGW-w64 GCC 13.2.0 (release 3.0.0, 23 October 2026). `cl.exe` is not a
+supported compiler — see [docs/windows.md](docs/windows.md).
 
 4. **Documentation**
    - Algorithm explanations
@@ -82,7 +124,14 @@ When adding a new FFT algorithm:
    - `algorithms/core/` for FFT variants
    - `algorithms/dft/` for DFT implementations
    - `applications/` for applications
-   - `optimizations/` for optimized versions
+
+   Every `.c` file under `algorithms/` and `utils/` is picked up by the source
+   glob in `CMakeLists.txt` automatically, so a new kernel is compiled into the
+   library whether or not anything calls it. That is how the deleted
+   `optimizations/` directory accumulated three unreachable kernels: declaring a
+   function in a header and selecting it from `select_algorithm()` is what makes
+   a kernel part of the library, and a test in `tests/test_all.c` is what makes it
+   correct. Add both.
 
 2. Include the common header:
    ```c
@@ -263,6 +312,23 @@ All contributions must include appropriate tests:
    - Update `tests/test_all.c` to include new tests
    - Ensure all existing tests still pass
 
+Run the suite before opening a pull request:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure   # 1361/1361 checks expected
+./build/bin/benchmark_all                    # must print "Failed: 0"
+```
+
+The build must be warning-free under `-Wall -Wextra`; CI fails on the first
+`warning:`. On Windows the build is verified with MinGW-w64 GCC 13.2.0. For
+documentation changes, build the site in strict mode:
+
+```bash
+python -m mkdocs build --strict -f docs/mkdocs.yml -d "$RUNNER_TEMP/docs-site"
+```
+
 ## Documentation
 
 ### Code Documentation
@@ -338,6 +404,13 @@ Performance characteristics and benchmarks.
 1. [Paper/Book citations]
 ```
 
+## Security
+
+Do not report a suspected vulnerability in a public issue. Follow
+[SECURITY.md](SECURITY.md) and use GitHub's private vulnerability reporting
+from the repository's **Security** tab. Include the affected version, platform,
+compiler, build flags, and a minimal reproducer.
+
 ## Submitting Changes
 
 ### Pull Request Process
@@ -372,32 +445,11 @@ Performance characteristics and benchmarks.
 
 ### Pull Request Template
 
-```markdown
-## Description
-Brief description of changes
-
-## Type of Change
-- [ ] New algorithm implementation
-- [ ] Bug fix
-- [ ] Performance optimization
-- [ ] Documentation update
-- [ ] New application/example
-
-## Testing
-- [ ] All tests pass
-- [ ] Added new tests
-- [ ] Tested on multiple platforms
-
-## Performance Impact
-Include benchmark results comparing before/after
-
-## Checklist
-- [ ] Code follows style guidelines
-- [ ] Self-review completed
-- [ ] Comments added for complex code
-- [ ] Documentation updated
-- [ ] No new warnings
-```
+GitHub loads the checklist from
+[.github/pull_request_template.md](.github/pull_request_template.md). It covers
+the build, the 1361-check suite, warning-free compilation, benchmark smoke
+tests, and the strict docs build. Paste the commands you ran rather than ticking
+boxes you did not verify.
 
 ## Questions?
 

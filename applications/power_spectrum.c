@@ -1,28 +1,8 @@
-#include "../include/fft_common.h"
-#include "../include/fft_algorithms.h"
+#include "fft_common.h"
+#include "fft_algorithms.h"
 
-// Window function implementations
-void apply_window_hann(complex_t* signal, int n) {
-    for (int i = 0; i < n; i++) {
-        double window = 0.5 * (1.0 - cos(TWO_PI * i / (n - 1)));
-        signal[i] *= window;
-    }
-}
-
-void apply_window_hamming(complex_t* signal, int n) {
-    for (int i = 0; i < n; i++) {
-        double window = 0.54 - 0.46 * cos(TWO_PI * i / (n - 1));
-        signal[i] *= window;
-    }
-}
-
-void apply_window_blackman(complex_t* signal, int n) {
-    for (int i = 0; i < n; i++) {
-        double window = 0.42 - 0.5 * cos(TWO_PI * i / (n - 1)) 
-                      + 0.08 * cos(4 * PI * i / (n - 1));
-        signal[i] *= window;
-    }
-}
+/* apply_window_* come from utils/window_functions.c and are declared in
+ * fft_common.h; local copies here duplicated the symbols. */
 
 /**
  * Power Spectrum Analysis
@@ -129,15 +109,24 @@ double* welch_psd(complex_t* signal, int signal_len, double sample_rate,
     return psd_avg;
 }
 
-// Compute autocorrelation using FFT
+// Compute autocorrelation using FFT.
+// Returns a heap array the caller must release with free_complex_array().
 complex_t* autocorrelation_fft(complex_t* signal, int n) {
+    if (!signal || n <= 0) return NULL;
+
     // Zero-pad to avoid circular correlation
     int n_fft = next_power_of_two(2 * n);
+    if (n_fft <= 0) return NULL;
+
+    /* allocate_complex_array() already zeroes the buffer. */
     complex_t* x = allocate_complex_array(n_fft);
-    
-    // Copy and zero-pad signal
-    memset(x, 0, n_fft * sizeof(complex_t));
-    memcpy(x, signal, n * sizeof(complex_t));
+    complex_t* acf = allocate_complex_array(n);
+    if (!x || !acf) {
+        free_complex_array(x);
+        free_complex_array(acf);
+        return NULL;
+    }
+    memcpy(x, signal, (size_t)n * sizeof(complex_t));
     
     // FFT
     radix2_dit_fft(x, n_fft, FFT_FORWARD);
@@ -151,24 +140,29 @@ complex_t* autocorrelation_fft(complex_t* signal, int n) {
     radix2_dit_fft(x, n_fft, FFT_INVERSE);
     
     // Extract autocorrelation (first n samples)
-    complex_t* acf = allocate_complex_array(n);
-    memcpy(acf, x, n * sizeof(complex_t));
+    memcpy(acf, x, (size_t)n * sizeof(complex_t));
     
     free_complex_array(x);
     return acf;
 }
 
-// Cross-correlation via FFT
+// Cross-correlation via FFT.
+// Returns a heap array the caller must release with free_complex_array().
 complex_t* cross_correlation_fft(complex_t* x, complex_t* y, int n) {
+    if (!x || !y || n <= 0) return NULL;
+
     int n_fft = next_power_of_two(2 * n);
+    if (n_fft <= 0) return NULL;
+
     complex_t* X = allocate_complex_array(n_fft);
     complex_t* Y = allocate_complex_array(n_fft);
-    
-    // Zero-pad signals
-    memset(X, 0, n_fft * sizeof(complex_t));
-    memset(Y, 0, n_fft * sizeof(complex_t));
-    memcpy(X, x, n * sizeof(complex_t));
-    memcpy(Y, y, n * sizeof(complex_t));
+    if (!X || !Y) {
+        free_complex_array(X);
+        free_complex_array(Y);
+        return NULL;
+    }
+    memcpy(X, x, (size_t)n * sizeof(complex_t));
+    memcpy(Y, y, (size_t)n * sizeof(complex_t));
     
     // FFT both signals
     radix2_dit_fft(X, n_fft, FFT_FORWARD);
@@ -184,42 +178,75 @@ complex_t* cross_correlation_fft(complex_t* x, complex_t* y, int n) {
     
     // Extract result
     complex_t* ccf = allocate_complex_array(n);
-    memcpy(ccf, X, n * sizeof(complex_t));
+    if (!ccf) {
+        free_complex_array(X);
+        free_complex_array(Y);
+        return NULL;
+    }
+    memcpy(ccf, X, (size_t)n * sizeof(complex_t));
     
     free_complex_array(X);
     free_complex_array(Y);
     return ccf;
 }
 
-// Compute coherence between two signals
+// Compute magnitude-squared coherence between two signals
+//   |Cxy(f)|^2 = |Pxy(f)|^2 / (Pxx(f) * Pyy(f))
 double* compute_coherence(complex_t* x, complex_t* y, int n, int window_size) {
-    double* coherence = (double*)malloc((window_size/2 + 1) * sizeof(double));
-    
-    // Compute cross-spectral density and auto-spectral densities
-    welch_params_t params = {
-        .window_size = window_size,
-        .overlap = window_size / 2,
-        .window_type = "hann",
-        .num_averages = 0
-    };
-    
-    double* psd_xx = welch_psd(x, n, 1.0, &params);
-    double* psd_yy = welch_psd(y, n, 1.0, &params);
-    
-    // For simplicity, compute magnitude squared coherence
-    // |Cxy|² = |Pxy|² / (Pxx × Pyy)
-    
-    for (int k = 0; k <= window_size/2; k++) {
-        if (psd_xx[k] > 0 && psd_yy[k] > 0) {
-            // Simplified - would need cross-PSD for full implementation
-            coherence[k] = 1.0;  // Placeholder
-        } else {
-            coherence[k] = 0.0;
+    int half = window_size / 2;
+    int num_bins = half + 1;
+    double* coherence = (double*)malloc(num_bins * sizeof(double));
+
+    int overlap = half;                       /* 50 % overlap */
+    int step = window_size - overlap;
+    int num_windows = (n - overlap) / step;
+    if (num_windows < 1) num_windows = 1;
+
+    /* Accumulate Pxx, Pyy, and complex Pxy per bin */
+    double* psd_xx = (double*)calloc(num_bins, sizeof(double));
+    double* psd_yy = (double*)calloc(num_bins, sizeof(double));
+    complex_t* psd_xy = allocate_complex_array(num_bins);
+    for (int k = 0; k < num_bins; k++)
+        psd_xy[k] = 0.0;
+
+    complex_t* wx = allocate_complex_array(window_size);
+    complex_t* wy = allocate_complex_array(window_size);
+
+    for (int w = 0; w < num_windows; w++) {
+        int start = w * step;
+
+        /* Extract & window both channels */
+        for (int i = 0; i < window_size; i++) {
+            int idx = start + i;
+            double hann = 0.5 * (1.0 - cos(TWO_PI * i / (window_size - 1)));
+            wx[i] = (idx < n ? x[idx] : 0.0) * hann;
+            wy[i] = (idx < n ? y[idx] : 0.0) * hann;
+        }
+
+        radix2_dit_fft(wx, window_size, FFT_FORWARD);
+        radix2_dit_fft(wy, window_size, FFT_FORWARD);
+
+        for (int k = 0; k < num_bins; k++) {
+            psd_xx[k] += cabs(wx[k]) * cabs(wx[k]);
+            psd_yy[k] += cabs(wy[k]) * cabs(wy[k]);
+            psd_xy[k] += conj(wx[k]) * wy[k];
         }
     }
-    
+
+    /* Coherence: |Pxy|^2 / (Pxx * Pyy) */
+    for (int k = 0; k < num_bins; k++) {
+        double denom = psd_xx[k] * psd_yy[k];
+        if (denom > 0)
+            coherence[k] = cabs(psd_xy[k]) * cabs(psd_xy[k]) / denom;
+        else
+            coherence[k] = 0.0;
+    }
+
     free(psd_xx);
     free(psd_yy);
+    free_complex_array(psd_xy);
+    free_complex_array(wx);
+    free_complex_array(wy);
     return coherence;
 }
 
@@ -339,8 +366,13 @@ void demo_signal_analysis() {
     complex_t* acf = autocorrelation_fft(signal, n);
     
     printf("Lag\tAutocorrelation\n");
-    for (int lag = 0; lag < 10; lag++) {
-        printf("%d\t%.3f\n", lag, creal(acf[lag]) / creal(acf[0]));
+    if (acf) {
+        double lag0 = creal(acf[0]);
+        for (int lag = 0; lag < 10; lag++) {
+            printf("%d\t%.3f\n", lag, lag0 != 0.0 ? creal(acf[lag]) / lag0 : 0.0);
+        }
+    } else {
+        printf("  unavailable (allocation failed)\n");
     }
     
     // 4. Spectral statistics
@@ -381,13 +413,26 @@ int main() {
         }
         
         fft_timer_t timer;
+
+        /* Batch until clock() resolves the interval. One 1024-point
+         * periodogram is well under its ~1 ms tick and printed 0.000 ms. */
+        int reps = 1;
+        double total = 0.0;
+        double* psd = NULL;
+        for (;;) {
+            timer_start(&timer);
+            for (int r = 0; r < reps; r++) {
+                free(psd);
+                psd = compute_periodogram(signal, n, 1000.0);
+            }
+            timer_stop(&timer);
+            total = timer.elapsed_ms;
+            if (total >= 10.0 || reps >= (1 << 16)) break;
+            reps *= 4;
+        }
         
-        // Time periodogram
-        timer_start(&timer);
-        double* psd = compute_periodogram(signal, n, 1000.0);
-        timer_stop(&timer);
-        
-        printf("N=%d: Periodogram time = %.3f ms\n", n, timer.elapsed_ms);
+        printf("N=%d: Periodogram time = %.4f ms (avg of %d)\n",
+               n, total / reps, reps);
         
         free(psd);
         free_complex_array(signal);

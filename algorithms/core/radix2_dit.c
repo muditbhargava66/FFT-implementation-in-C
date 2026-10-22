@@ -55,10 +55,11 @@
  * @param x Input/output array of complex numbers
  * @param n Length of array (must be power of 2)
  * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
+ * @return FFT_OK, FFT_ERR_NULL, or FFT_ERR_SIZE
  */
-void radix2_dit_fft(complex_t* x, int n, fft_direction dir) {
-    /* Validate input is power of 2 */
-    CHECK_POWER_OF_TWO(n);
+fft_error_t radix2_dit_fft(complex_t* x, int n, fft_direction dir) {
+    if (!x) return FFT_ERR_NULL;
+    FFT_REQUIRE_POW2(n);
     
     int log2n = log2_int(n);
     
@@ -117,6 +118,7 @@ void radix2_dit_fft(complex_t* x, int n, fft_direction dir) {
             x[i] /= n;
         }
     }
+    return FFT_OK;
 }
 
 /**
@@ -124,8 +126,8 @@ void radix2_dit_fft(complex_t* x, int n, fft_direction dir) {
  * @param x Input/output array
  * @param n Array length (must be power of 2)
  */
-void fft_radix2_dit(complex_t* x, int n) {
-    radix2_dit_fft(x, n, FFT_FORWARD);
+fft_error_t fft_radix2_dit(complex_t* x, int n) {
+    return radix2_dit_fft(x, n, FFT_FORWARD);
 }
 
 /**
@@ -133,8 +135,8 @@ void fft_radix2_dit(complex_t* x, int n) {
  * @param x Input/output array
  * @param n Array length (must be power of 2)
  */
-void ifft_radix2_dit(complex_t* x, int n) {
-    radix2_dit_fft(x, n, FFT_INVERSE);
+fft_error_t ifft_radix2_dit(complex_t* x, int n) {
+    return radix2_dit_fft(x, n, FFT_INVERSE);
 }
 
 #ifndef LIB_BUILD

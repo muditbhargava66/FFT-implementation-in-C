@@ -6,10 +6,11 @@ This guide will help you get started with the FFT Implementation in C project.
 
 Before building the project, ensure you have the following installed:
 
-- **C Compiler**: GCC 4.8+ or Clang 3.4+ (with C99 support)
-- **Make**: GNU Make 3.81+
+- **C Compiler**: GCC 4.8+ or Clang 3.4+, with C11 `complex.h` and `_Complex`.
+  MSVC's `cl.exe` is not supported; CMake stops with an explanation if it is
+  selected. On Windows use MinGW-w64 or clang.
+- **CMake**: 3.10+
 - **Math Library**: Standard C math library (libm)
-- **Optional**: OpenMP support for parallel implementations
 
 ### Platform-Specific Notes
 
@@ -24,16 +25,30 @@ Before building the project, ensure you have the following installed:
     ```bash
     # Install Xcode Command Line Tools
     xcode-select --install
-    
-    # For OpenMP support, install GCC via Homebrew
-    brew install gcc
     ```
 
+=== "Windows"
+    ```cmd
+    # CMake Build
+    cmake -S . -B build
+    cmake --build build
+    ```
+
+    Tested with MinGW-w64 GCC 13.2.0: 1361/1361 checks pass with no compiler
+    warnings.
+
+    **Prerequisites**:
+    - MinGW-w64 (or clang). Visual Studio's `cl.exe` cannot build this library —
+      it requires C11 `_Complex` arithmetic that MSVC does not provide, and CMake
+      stops with that explanation if `cl.exe` is the selected C compiler
+    - CMake 3.10+
+    - Git for Windows
+    
 === "Windows (WSL)"
     ```bash
     # In WSL terminal
     sudo apt-get update
-    sudo apt-get install build-essential
+    sudo apt-get install build-essential cmake
     ```
 
 ## Installation
@@ -45,30 +60,23 @@ git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
 cd FFT-implementation-in-C
 ```
 
-### 2. Quick Build
+### 2. Build with CMake
 
-The easiest way to get started is using the quickstart script:
+The project uses CMake for cross-platform builds:
 
 ```bash
-chmod +x quickstart.sh
-./quickstart.sh
+# Configure
+cmake -S . -B build
+
+# Build
+cmake --build build --config Release
 ```
 
-Select option 1 to build everything for the first time.
-
-### 3. Manual Build
-
-Alternatively, you can use Make directly:
+### 3. Run Tests
 
 ```bash
-# Build everything
-make all
-
-# Build specific components
-make algorithms     # Core FFT algorithms only
-make applications  # Applications only
-make optimizations # Optimized versions only
-make tests        # Test suite only
+cd build/bin
+./test_all
 ```
 
 ## First Program
@@ -118,7 +126,7 @@ int main() {
 Compile and run:
 
 ```bash
-gcc -I./include my_first_fft.c -L./lib -lfft -lm -o my_first_fft
+gcc -I./include my_first_fft.c -L./build/lib -lfft_lib_c -lm -o my_first_fft
 ./my_first_fft
 ```
 
@@ -136,7 +144,7 @@ To use the FFT library in your own project:
 
 2. Link with the library:
    ```bash
-   gcc -I/path/to/include your_program.c -L/path/to/lib -lfft -lm
+   gcc -I/path/to/include your_program.c -L/path/to/build/lib -lfft_lib_c -lm
    ```
 
 ### Basic Usage Pattern
@@ -165,26 +173,10 @@ free_complex_array(data);
 
 After building, you'll find:
 
-- `bin/`: Executable demonstrations and examples
-- `lib/`: Static library file (`libfft.a`)
-- `obj/`: Object files (intermediate build artifacts)
+- `build/lib/`: the static library (`libfft_lib_c.a` with GCC/Clang)
+- `build/bin/`: `test_all`, `benchmark_all`, and the `applications/` demos
 
 ## Common Issues and Solutions
-
-### Issue: OpenMP Not Found (macOS)
-
-On macOS, the default Clang compiler doesn't support OpenMP. Solutions:
-
-1. Install GCC via Homebrew:
-   ```bash
-   brew install gcc
-   export CC=gcc-13  # Use appropriate version
-   ```
-
-2. Or build without OpenMP:
-   ```bash
-   make OPENMP_FLAGS=""
-   ```
 
 ### Issue: Power of 2 Requirement
 
@@ -200,7 +192,61 @@ if (!is_power_of_two(n)) {
 
 ### Issue: Compilation Warnings
 
-Some warnings are expected due to optimization flags. Critical warnings are errors and will prevent compilation.
+The build compiles with `-Wall -Wextra` and is warning-clean, so any warning is
+a real finding rather than expected noise. CI fails the build on the first one.
+
+## IDE Integration
+
+### Visual Studio Code
+
+1. Install extensions:
+   - C/C++
+   - CMake Tools
+   - CUDA (if using GPU)
+
+2. Configure `.vscode/settings.json`:
+   ```json
+   {
+       "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
+       "C_Cpp.default.includePath": [
+           "${workspaceFolder}/include",
+           "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include"
+       ]
+   }
+   ```
+
+### Visual Studio Code (Windows)
+
+Point the C/C++ extension at a MinGW-w64 or clang compiler as above. Visual
+Studio's own `cl.exe` toolset cannot compile this library — see
+[Prerequisites](#prerequisites).
+
+## Performance Optimization
+
+### Compiler Optimizations
+
+The default build is already `-O3`. Two things worth knowing before adding flags:
+
+```bash
+# Tune for the CPU you are building on. Off by default: the binaries will not
+# run on older CPUs, and MinGW-w64 GCC emits misaligned 32-byte AVX stack stores
+# under it that crash some programs intermittently. See the comment above the
+# FFT_NATIVE_ARCH option in CMakeLists.txt.
+cmake -S . -B build -DFFT_NATIVE_ARCH=ON
+cmake --build build --config Release
+```
+
+Do **not** add `-ffast-math`. It permits the compiler to reassociate the
+butterfly sums and to assume no value is ever NaN or Inf, both of which are
+load-bearing assumptions for an FFT; it trades correctness for a speedup this
+library is not memory-bound enough to need.
+
+### Windows-Specific Optimizations
+
+1. **Disable Windows Defender real-time scanning** for the build directory
+2. **Set high performance power plan**
+3. **Use SSD** for faster compilation
+4. **Increase RAM** if building large projects
 
 ## Next Steps
 
@@ -208,3 +254,4 @@ Some warnings are expected due to optimization flags. Critical warnings are erro
 - Check out [Applications](applications.md) for real-world examples
 - Review the [API Reference](api-reference.md) for detailed function documentation
 - Run benchmarks to compare performance: `./bin/benchmark_all`
+- For Windows users: See [Windows Support](windows.md) for detailed Windows-specific information

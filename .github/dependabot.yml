@@ -1,0 +1,39 @@
+# Dependabot version updates.
+#
+# Only two dependency surfaces exist in this repository:
+#   - github-actions: the workflows in .github/workflows
+#   - pip: docs/requirements.txt, used to build the Read the Docs site
+#
+# C and CMake have no Dependabot ecosystem, and the library vendors no third-
+# party sources. The gpu/ directory is compiled only with FFT_ENABLE_GPU=ON and
+# fetches nothing, so there is no submodule or package ecosystem to track.
+#
+# Schema:
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    # Labels are omitted: Dependabot only applies labels that already exist in
+    # the repository, and this repository has only the GitHub default set.
+    # Add labels here after creating them if you want them applied.
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  - package-ecosystem: "pip"
+    directory: "/docs"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "docs(deps)"
+      include: "scope"

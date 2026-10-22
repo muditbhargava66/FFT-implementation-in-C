@@ -45,15 +45,29 @@ void generate_multi_tone(complex_t* signal, int n, double* frequencies,
     }
 }
 
-// Window functions
 void apply_window_kaiser(complex_t* signal, int n, double beta) {
-    double i0_beta = 1.0;  // Simplified - would compute modified Bessel function
-    
+    /* Modified Bessel function I0 via series expansion */
+    double i0_beta = 1.0;
+    {
+        double term = 1.0;
+        for (int k = 1; k <= 20; k++) {
+            term *= (beta * 0.5) / k;
+            i0_beta += term * term;
+        }
+    }
+
     for (int i = 0; i < n; i++) {
         double x = 2.0 * i / (n - 1) - 1.0;
-        double arg = beta * sqrt(1 - x * x);
-        double window = 1.0;  // Simplified Kaiser window
-        signal[i] *= window;
+        double arg = beta * sqrt(1.0 - x * x);
+        double i0_arg = 1.0;
+        {
+            double term = 1.0;
+            for (int k = 1; k <= 20; k++) {
+                term *= (arg * 0.5) / k;
+                i0_arg += term * term;
+            }
+        }
+        signal[i] *= i0_arg / i0_beta;
     }
 }
 
@@ -254,6 +268,7 @@ void frequency_shift(complex_t* signal, int n, double shift_freq, double sample_
     }
 }
 
+#ifndef LIB_BUILD
 // Main demonstration
 int main() {
     printf("FFT Utility Functions Demo\n");
@@ -331,3 +346,4 @@ int main() {
     
     return 0;
 }
+#endif /* LIB_BUILD */

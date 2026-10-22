@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+# Everything in this workflow only reads the repository.
+permissions:
+  contents: read
+
+# A newer push to the same ref supersedes the run in flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# The two C jobs are separate rather than one matrix: the Windows job has to run
+# every step inside the MSYS2 shell, and `shell:` cannot be varied per matrix
+# entry reliably. The docs job is independent and runs MkDocs in strict mode.
+#
+# The GPU backend is left off everywhere. FFT_ENABLE_GPU defaults to OFF, the
+# CUDA sources have not been run against real hardware, and a CI lane that
+# cannot execute the code it builds would be reporting nothing.
+
+jobs:
+  linux:
+    name: Linux / ${{ matrix.cc }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.cc }}
+
+      - name: Build
+        run: cmake --build build 2>&1 | tee build.log
+
+      # The project compiles with -Wall -Wextra and is warning-clean, so treat a
+      # new warning as a failure rather than letting it accumulate unnoticed.
+      - name: Fail on compiler warnings
+        run: |
+          if grep -q "warning:" build.log; then
+            echo "Compiler warnings are not allowed:"
+            grep -n "warning:" build.log
+            exit 1
+          fi
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      # benchmark_all exits 0 even when a row reports FAIL, so the pass/fail
+      # counts have to be read out of its output for this step to mean anything.
+      - name: Benchmark smoke test
+        run: |
+          ./build/bin/benchmark_all | tee bench.log
+          grep -E "^Failed: 0 " bench.log >/dev/null || {
+            echo "benchmark_all reported failing rows:"; grep -E "^Failed:" bench.log; exit 1; }
+
+  windows-mingw:
+    name: Windows / MinGW-w64 (ucrt64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    # MSVC's C compiler has no C11 _Complex arithmetic, which this library
+    # requires, and CMakeLists.txt stops at configure time with an explanation
+    # if cl.exe is selected. So the runner default is not usable here and a real
+    # MinGW-w64 toolchain is installed instead.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up MinGW-w64 (ucrt64)
+        uses: msys2/setup-msys2@v2.33.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Configure
+        shell: msys2 {0}
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build 2>&1 | tee build.log
+
+      - name: Fail on compiler warnings
+        shell: msys2 {0}
+        run: |
+          if grep -q "warning:" build.log; then
+            echo "Compiler warnings are not allowed:"
+            grep -n "warning:" build.log
+            exit 1
+          fi
+
+      - name: Test
+        shell: msys2 {0}
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Benchmark smoke test
+        shell: msys2 {0}
+        run: |
+          ./build/bin/benchmark_all | tee bench.log
+          grep -E "^Failed: 0 " bench.log >/dev/null || {
+            echo "benchmark_all reported failing rows:"; grep -E "^Failed:" bench.log; exit 1; }
+
+  docs:
+    name: Docs / MkDocs (strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install documentation dependencies
+        run: python -m pip install -r docs/requirements.txt
+
+      # --strict turns broken navigation, unresolved links and build warnings
+      # into failures, so the published site cannot silently rot.
+      - name: Build documentation
+        run: python -m mkdocs build --strict -f docs/mkdocs.yml -d "$RUNNER_TEMP/docs-site"

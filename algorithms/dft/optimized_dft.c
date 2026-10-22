@@ -27,9 +27,15 @@ typedef struct {
 } twiddle_cache_t;
 
 static twiddle_cache_t* create_twiddle_cache(int n, fft_direction dir) {
+    if (n <= 0) return NULL;
     twiddle_cache_t* cache = (twiddle_cache_t*)malloc(sizeof(twiddle_cache_t));
+    if (!cache) return NULL;
     cache->size = n;
     cache->factors = allocate_complex_array(n * n);
+    if (!cache->factors) {
+        free(cache);
+        return NULL;
+    }
     
     // Precompute all twiddle factors
     for (int k = 0; k < n; k++) {
@@ -42,14 +48,17 @@ static twiddle_cache_t* create_twiddle_cache(int n, fft_direction dir) {
 }
 
 static void free_twiddle_cache(twiddle_cache_t* cache) {
+    if (!cache) return;
     free_complex_array(cache->factors);
     free(cache);
 }
 
 // Optimized DFT with precomputed twiddles
 void optimized_dft_cached(complex_t* x, int n, twiddle_cache_t* cache) {
+    if (!x || !cache || n <= 0) return;
     complex_t* temp = allocate_complex_array(n);
-    memcpy(temp, x, n * sizeof(complex_t));
+    if (!temp) return;
+    memcpy(temp, x, (size_t)n * sizeof(complex_t));
     
     // Use precomputed twiddle factors
     for (int k = 0; k < n; k++) {
@@ -78,16 +87,12 @@ void optimized_dft_cached(complex_t* x, int n, twiddle_cache_t* cache) {
 
 // Optimized DFT for real input (exploits symmetry)
 void optimized_dft_real(double* x_real, complex_t* X, int n) {
-    // For real input, X[k] = conj(X[N-k])
-    // So we only need to compute half the outputs
-    
+    if (!x_real || !X || n <= 0) return;
+
+    // For real input, X[k] = conj(X[n-k]), so only 0..n/2 need computing.
     for (int k = 0; k <= n/2; k++) {
-        complex_t sum = 0;
+        complex_t sum = x_real[0];
         
-        // First element (no multiplication needed)
-        sum = x_real[0];
-        
-        // Middle elements (use symmetry)
         for (int j = 1; j < n; j++) {
             double angle = -TWO_PI * j * k / n;
             sum += x_real[j] * (cos(angle) + I * sin(angle));
@@ -95,14 +100,18 @@ void optimized_dft_real(double* x_real, complex_t* X, int n) {
         
         X[k] = sum;
         
-        // Use symmetry for the second half
-        if (k > 0 && k < n/2) {
-            X[n-k] = conj(sum);
+        /* Mirror the conjugate pair. Skipping k==0 avoids writing X[n], and
+         * skipping the self-paired Nyquist bin avoids overwriting X[n/2] with
+         * its own conjugate; for odd n this also covers bin (n+1)/2, which the
+         * previous k < n/2 test left uninitialised. */
+        int mirror = n - k;
+        if (k > 0 && mirror != k) {
+            X[mirror] = conj(sum);
         }
     }
 }
 
-// Goertzel algorithm for computing single DFT bin
+// Goertzel algorithm for computing a single forward DFT bin
 complex_t goertzel_single_bin(complex_t* x, int n, int k) {
     double omega = TWO_PI * k / n;
     double cos_omega = cos(omega);
@@ -118,28 +127,37 @@ complex_t goertzel_single_bin(complex_t* x, int n, int k) {
         s1 = s0;
     }
     
-    // Final calculation
-    double real = s1 - s2 * cos_omega;
-    double imag = s2 * sin_omega;
+    // X[k] = e^{+j*omega}*s1 - s2, i.e. (s1*cos - s2) + j*(s1*sin).
+    // The previous form, s1 - s2*e^{+j*omega}, gave the wrong phase.
+    double real = s1 * cos_omega - s2;
+    double imag = s1 * sin_omega;
     
-    return real - I * imag;
+    return real + I * imag;
 }
 
 // Optimized DFT using various techniques
-void optimized_dft(complex_t* x, int n, fft_direction dir) {
+fft_error_t optimized_dft(complex_t* x, int n, fft_direction dir) {
+    if (!x) return FFT_ERR_NULL;
+    if (n <= 0) return FFT_ERR_SIZE;
+
     if (n <= 32) {
         // For small sizes, use cached twiddle factors
         twiddle_cache_t* cache = create_twiddle_cache(n, dir);
+        if (!cache) return FFT_ERR_ALLOC;
         optimized_dft_cached(x, n, cache);
         free_twiddle_cache(cache);
     } else {
         // For larger sizes, compute on the fly with optimization
         complex_t* temp = allocate_complex_array(n);
-        memcpy(temp, x, n * sizeof(complex_t));
-        
-        // Use symmetry and reduce redundant calculations
         complex_t* cos_table = allocate_complex_array(n);
         complex_t* sin_table = allocate_complex_array(n);
+        if (!temp || !cos_table || !sin_table) {
+            free_complex_array(temp);
+            free_complex_array(cos_table);
+            free_complex_array(sin_table);
+            return FFT_ERR_ALLOC;
+        }
+        memcpy(temp, x, (size_t)n * sizeof(complex_t));
         
         for (int j = 0; j < n; j++) {
             double angle = dir * TWO_PI * j / n;
@@ -173,6 +191,7 @@ void optimized_dft(complex_t* x, int n, fft_direction dir) {
             x[i] /= n;
         }
     }
+    return FFT_OK;
 }
 
 // Benchmark different optimizations

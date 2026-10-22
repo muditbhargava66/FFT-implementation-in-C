@@ -1,19 +1,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "../include/fft_auto.h"
-#include "../include/fft_gpu.h"
+#include "fft_auto.h"
+#include "fft_gpu.h"
 
 /**
- * @file demo_v2_features.c
- * @brief Demonstration of FFT v2.0.0 features
+ * @file demo_features.c
+ * @brief Demonstration of FFT features
  * 
  * Shows:
  * - Automatic algorithm selection
  * - GPU acceleration
  * - New simplified API
  * - Performance comparison
- * - v2.0.0 optimizations (twiddle factors, bit reversal, compiler hints)
+ * - Optimization features (twiddle factors, bit reversal, compiler hints)
  */
 
 // Generate test signal
@@ -32,20 +32,7 @@ void generate_test_signal(complex_t* signal, int n) {
     }
 }
 
-// Benchmark a specific approach
-double benchmark_fft(complex_t* signal, int n, const char* method,
-                    void (*fft_func)(complex_t*, complex_t*, int, int)) {
-    complex_t* work = fft_alloc_complex(n);
-    memcpy(work, signal, n * sizeof(complex_t));
-    
-    clock_t start = clock();
-    fft_func(work, work, n, -1);
-    clock_t end = clock();
-    
-    fft_free(work);
-    
-    return ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0;
-}
+
 
 // Demo automatic algorithm selection
 void demo_automatic_selection(void) {
@@ -60,31 +47,37 @@ void demo_automatic_selection(void) {
         int n = sizes[i];
         printf("\nSize %d (%s):\n", n, size_types[i]);
         
-        // Create plan and check selected algorithm
         complex_t* data = fft_alloc_complex(n);
         fft_plan_t plan = fft_plan_dft_1d(n, data, data, -1, FFT_ESTIMATE);
-        
-        // The library will print or we can check internal state
-        printf("  Selected algorithm: ");
-        if (is_power_of_two(n)) {
-            if (n <= 64) printf("Radix-2 DIT (simple for small sizes)\n");
-            else if (n <= 1024) printf("Radix-4 (fewer operations)\n");
-            else printf("Split-Radix (optimal operation count)\n");
-        } else {
-            if (n == 97) printf("Bluestein (prime size)\n");
-            else if (n == 360) printf("Mixed-Radix (highly composite)\n");
-            else printf("Bluestein (arbitrary size)\n");
+        if (!plan) {
+            printf("  Planning failed for n=%d\n", n);
+            fft_free(data);
+            continue;
         }
+
+        /* Ask the plan what it chose. This used to be a hand-written copy of
+         * the selection rules, which had already drifted from the library. */
+        printf("  Selected algorithm: %s\n", fft_plan_algorithm_name(plan));
         
-        // Time the execution
         generate_test_signal(data, n);
         
-        clock_t start = clock();
-        fft_execute(plan);
-        clock_t end = clock();
-        
-        double time_ms = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0;
-        printf("  Execution time: %.3f ms\n", time_ms);
+        /* clock() advances about once a millisecond on Windows, so one small
+         * transform measures as 0.000 ms. The batch is grown until the clock
+         * records at least ~50 ticks, which keeps the quantisation error under
+         * the printed precision. */
+        int reps = 32;
+        double time_ms = 0.0;
+        for (;;) {
+            clock_t start = clock();
+            for (int r = 0; r < reps; r++)
+                fft_execute(plan);
+            double ticks = (double)(clock() - start);
+            time_ms = ticks * 1000.0 / ((double)CLOCKS_PER_SEC * (double)reps);
+            if (ticks >= 50.0 || reps >= 2000000) break;
+            int next = (ticks > 0.0) ? (int)(reps * (50.0 / ticks)) : reps * 8;
+            reps = (next > reps) ? next : reps + 1;
+        }
+        printf("  Execution time: %.4f ms (%d runs)\n", time_ms, reps);
         
         fft_destroy_plan(plan);
         fft_free(data);
@@ -157,32 +150,31 @@ void demo_gpu_acceleration(void) {
 
 // Demo new simplified API
 void demo_simplified_api(void) {
-    printf("\n\n=== Simplified API Demo (v2.0.0) ===\n");
+    printf("\n\n=== Simplified API Demo ===\n");
     
     int n = 1024;
     complex_t* signal = fft_alloc_complex(n);
     
-    printf("\nOld API (v1.x):\n");
+    printf("\nLegacy API:\n");
     printf("  radix2_dit_fft(signal, n, FFT_FORWARD);\n");
     printf("  // Need to know which algorithm to use\n");
     printf("  // No automatic optimization\n");
     
-    printf("\nNew API (v2.0.0):\n");
+    printf("\nModern API:\n");
     printf("  fft_auto(signal, signal, n, -1);\n");
     printf("  // Automatic algorithm selection\n");
-    printf("  // GPU acceleration if available\n");
-    printf("  // Optimized for your hardware\n");
+    printf("  // Best CPU kernel for this machine\n");
+    printf("  // GPU only with FFT_PREFER_GPU when a GPU build is available\n");
     
     // Demonstrate usage
     generate_test_signal(signal, n);
     
     printf("\nExecuting FFT with automatic optimization...\n");
-    clock_t start = clock();
+    /* A single 1024-point transform is far below clock()'s ~1 ms resolution on
+     * Windows, so reporting it here printed 0.000 ms. The measured-batch
+     * numbers are in the selection demo above and in benchmark_all. */
     fft_auto(signal, signal, n, -1);
-    clock_t end = clock();
-    
-    double time_ms = ((double)(end - start) / CLOCKS_PER_SEC) * 1000.0;
-    printf("Completed in %.3f ms\n", time_ms);
+    printf("Completed.\n");
     
     // Show some results
     printf("\nSpectrum peaks:\n");
@@ -223,7 +215,7 @@ void demo_hardware_detection(void) {
 
 // Main demo program
 int main() {
-    printf("FFT v2.0.0 Feature Demonstration\n");
+    printf("FFT Feature Demonstration\n");
     printf("================================\n");
     
     // Show version
@@ -239,15 +231,17 @@ int main() {
     demo_gpu_acceleration();
     
     // Summary
-    printf("\n\n=== Summary of v2.0.0 Features ===\n");
+    printf("\n\n=== Summary of Features ===\n");
     printf("1. Automatic algorithm selection based on size and hardware\n");
-    printf("2. GPU acceleration with CUDA and Metal support\n");
+    printf("2. GPU backends in source, excluded from the default build (CPU-only)\n");
     printf("3. Simplified API with fft_auto() function\n");
     printf("4. Cross-platform compatibility\n");
     printf("5. Intelligent planning with FFT_MEASURE flag\n");
     printf("6. Hardware detection and optimization\n");
-    printf("7. Aligned memory allocation for SIMD\n");
-    printf("8. Thread-safe implementation\n");
+    printf("7. Real-to-complex and complex-to-real FFT (r2c/c2r)\n");
+    printf("8. 2D FFT planning with row-column decomposition\n");
+    printf("9. Wisdom cache for persistent algorithm selection\n");
+    printf("10. Single-threaded planner; see the README's thread-safety note\n");
     
     printf("\nFor more information, see the documentation at:\n");
     printf("https://fft-implementation-in-c.readthedocs.io/\n");

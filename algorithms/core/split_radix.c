@@ -3,79 +3,127 @@
 
 /**
  * Split-Radix FFT Implementation
- * 
- * Combines radix-2 and radix-4 decompositions to minimize the number
- * of arithmetic operations. Uses radix-2 for even indices and radix-4
- * for odd indices.
- * 
- * Benefits:
- * - Lowest operation count among power-of-2 FFT algorithms
- * - About 33% fewer multiplications than radix-2
- * - More complex implementation but better performance
- * 
- * Time Complexity: O(n log n) with the best constants
+ *
+ * A split-radix step expresses an n-point DFT as one n/2-point DFT plus two
+ * n/4-point DFTs, which is the decomposition with the lowest known arithmetic
+ * cost for power-of-two lengths.
+ *
+ * Starting from the radix-2 split X[k] = E[k] + w_n^k * O[k], where E and O are
+ * the DFTs of the even and odd samples, the even branch is split once more:
+ *
+ *   O[k] = DFT_{n/2}( x[2m+1] )
+ *   A[k] = DFT_{n/4}( x[4l] )
+ *   B[k] = DFT_{n/4}( x[4l+2] )
+ *   E[k] = A[k mod n/4] + w_{n/2}^k * B[k mod n/4]
+ *   X[k]     = E[k] + w_n^k * O[k]
+ *   X[k+n/2] = E[k] - w_n^k * O[k]
+ *
+ * for k = 0..n/2-1, with the n=2 butterfly [[1,1],[1,-1]] as the base case (it
+ * is its own inverse, so the recursion carries `dir` only through the twiddles).
+ *
+ * The kernel is unnormalised for both directions; split_radix_fft applies the
+ * single 1/n scale at the end.
+ *
+ * Time Complexity: O(n log n), with the split-radix operation counts.
  */
 
-// Forward declaration for recursion
-void split_radix_fft_recursive(complex_t* x, int n, int stride, fft_direction dir);
+/*
+ * sp is a bump cursor into a caller-owned pool; children allocate above this
+ * node's buffers and roll the cursor back when they return, so peak usage is
+ * 2.5n + 2.5(n/2) + ... < 5n. Without the pool this kernel issued ~n mallocs
+ * per transform, and the allocator - not the arithmetic - was the whole cost.
+ */
+static int sr_recursion(complex_t* out, const complex_t* in, int n,
+                        fft_direction dir, complex_t** sp) {
+    if (n == 1) {
+        out[0] = in[0];
+        return 0;
+    }
+    if (n == 2) {
+        out[0] = in[0] + in[1];
+        out[1] = in[0] - in[1];
+        return 0;
+    }
 
-// Simplified split-radix using reliable radix-2 approach
-static void split_radix_iterative(complex_t* x, int n, fft_direction dir) {
-    if (n <= 1) return;
-    
-    int log2n = log2_int(n);
-    
-    // Bit-reversal permutation
-    for (int i = 0; i < n; i++) {
-        int j = bit_reverse(i, log2n);
-        if (i < j) {
-            complex_t temp = x[i];
-            x[i] = x[j];
-            x[j] = temp;
-        }
+    int h = n / 2, q = n / 4;
+
+    /* Gather inputs and their transform outputs in separate regions: sr_recursion
+     * writes its out argument while later stages still read in, so they must not
+     * overlap. */
+    complex_t* base = *sp;
+    complex_t* in_o = base;                    /* h */
+    complex_t* out_o = in_o + h;               /* h */
+    complex_t* in_a = out_o + h;               /* q */
+    complex_t* out_a = in_a + q;               /* q */
+    complex_t* in_b = out_a + q;               /* q */
+    complex_t* out_b = in_b + q;               /* q */
+    complex_t* e = out_b + q;                  /* h */
+    if ((e + h) > *sp + (5 * n)) return -1;    /* pool exhausted */
+
+    for (int m = 0; m < h; m++) in_o[m] = in[2 * m + 1];
+    for (int l = 0; l < q; l++) in_a[l] = in[4 * l];
+    for (int l = 0; l < q; l++) in_b[l] = in[4 * l + 2];
+
+    complex_t* mark = e + h;
+    int rc = sr_recursion(out_o, in_o, h, dir, &mark);
+    if (rc == 0) rc = sr_recursion(out_a, in_a, q, dir, &mark);
+    if (rc == 0) rc = sr_recursion(out_b, in_b, q, dir, &mark);
+    if (rc != 0) return rc;
+
+    /* E[k] = A[k mod q] + w_h^k * B[k mod q], k = 0..h-1 */
+    complex_t wh = twiddle_factor(1, h, dir);
+    complex_t wk = 1.0;
+    for (int k = 0; k < h; k++) {
+        int kq = k & (q - 1);          /* k mod q; q is a power of two */
+        e[k] = out_a[kq] + out_b[kq] * wk;
+        wk *= wh;
     }
-    
-    // Use standard radix-2 butterflies for reliability
-    for (int stage = 1; stage <= log2n; stage++) {
-        int m = 1 << stage;
-        int m2 = m >> 1;
-        complex_t wm = twiddle_factor(1, m, dir);
-        
-        for (int k = 0; k < n; k += m) {
-            complex_t w = 1.0;
-            for (int j = 0; j < m2; j++) {
-                complex_t t = x[k + j + m2] * w;
-                complex_t u = x[k + j];
-                x[k + j] = u + t;
-                x[k + j + m2] = u - t;
-                w *= wm;
-            }
-        }
+
+    /* X[k] = E[k] + w_n^k * O[k] and X[k+h] = E[k] - w_n^k * O[k] */
+    complex_t wn = twiddle_factor(1, n, dir);
+    wk = 1.0;
+    for (int k = 0; k < h; k++) {
+        complex_t t = out_o[k] * wk;
+        out[k] = e[k] + t;
+        out[k + h] = e[k] - t;
+        wk *= wn;
     }
+
+    return 0;
 }
 
 // Main split-radix FFT function
-void split_radix_fft(complex_t* x, int n, fft_direction dir) {
-    CHECK_POWER_OF_TWO(n);
-    
-    // Use iterative implementation to avoid memory issues
-    split_radix_iterative(x, n, dir);
-    
+fft_error_t split_radix_fft(complex_t* x, int n, fft_direction dir) {
+    if (!x) return FFT_ERR_NULL;
+    FFT_REQUIRE_POW2(n);
+    if (n == 1) return FFT_OK;
+
+    /* The kernel reads in[] while writing out[], so it cannot run in place. */
+    complex_t* pool = (complex_t*)malloc(((size_t)6 * n) * sizeof(complex_t));
+    if (!pool) return FFT_ERR_ALLOC;
+    memcpy(pool, x, (size_t)n * sizeof(complex_t));
+
+    complex_t* cursor = pool + n;        /* pool[0..n-1] holds the input copy */
+    int exhausted = sr_recursion(x, pool, n, dir, &cursor);
+    free(pool);
+    if (exhausted) return FFT_ERR_ALLOC;
+
     // Scale for inverse FFT
     if (dir == FFT_INVERSE) {
         for (int i = 0; i < n; i++) {
             x[i] /= n;
         }
     }
+    return FFT_OK;
 }
 
 // Wrapper functions
-void fft_split_radix(complex_t* x, int n) {
-    split_radix_fft(x, n, FFT_FORWARD);
+fft_error_t fft_split_radix(complex_t* x, int n) {
+    return split_radix_fft(x, n, FFT_FORWARD);
 }
 
-void ifft_split_radix(complex_t* x, int n) {
-    split_radix_fft(x, n, FFT_INVERSE);
+fft_error_t ifft_split_radix(complex_t* x, int n) {
+    return split_radix_fft(x, n, FFT_INVERSE);
 }
 
 // Operation counting for comparison

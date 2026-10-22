@@ -1,5 +1,5 @@
-#include "../include/fft_common.h"
-#include "../include/fft_algorithms.h"
+#include "fft_common.h"
+#include "fft_algorithms.h"
 
 /**
  * FFT-based Convolution
@@ -32,21 +32,25 @@ void direct_convolution(complex_t* x, int nx, complex_t* h, int nh, complex_t* y
 
 // FFT-based convolution
 void fft_convolution(complex_t* x, int nx, complex_t* h, int nh, complex_t* y) {
+    if (!x || !h || !y || nx <= 0 || nh <= 0) return;
+
     // Output length
     int ny = nx + nh - 1;
     
     // Find next power of 2 for FFT
     int n_fft = next_power_of_two(ny);
+    if (n_fft <= 0) return;   /* ny large enough to overflow the FFT size */
     
-    // Allocate zero-padded arrays
+    // Allocate zero-padded arrays (both allocators zero the memory)
     complex_t* x_pad = allocate_complex_array(n_fft);
     complex_t* h_pad = allocate_complex_array(n_fft);
-    
-    // Zero-pad inputs
-    memset(x_pad, 0, n_fft * sizeof(complex_t));
-    memset(h_pad, 0, n_fft * sizeof(complex_t));
-    memcpy(x_pad, x, nx * sizeof(complex_t));
-    memcpy(h_pad, h, nh * sizeof(complex_t));
+    if (!x_pad || !h_pad) {
+        free_complex_array(x_pad);
+        free_complex_array(h_pad);
+        return;
+    }
+    memcpy(x_pad, x, (size_t)nx * sizeof(complex_t));
+    memcpy(h_pad, h, (size_t)nh * sizeof(complex_t));
     
     // Compute FFTs
     radix2_dit_fft(x_pad, n_fft, FFT_FORWARD);
@@ -61,20 +65,29 @@ void fft_convolution(complex_t* x, int nx, complex_t* h, int nh, complex_t* y) {
     radix2_dit_fft(x_pad, n_fft, FFT_INVERSE);
     
     // Copy result (only valid part)
-    memcpy(y, x_pad, ny * sizeof(complex_t));
+    memcpy(y, x_pad, (size_t)ny * sizeof(complex_t));
     
     free_complex_array(x_pad);
     free_complex_array(h_pad);
 }
 
-// Circular convolution using FFT
+// Circular convolution using FFT.
+// x, h and y are all n elements long; shorter inputs must be zero-extended by
+// the caller, otherwise the copies below read past the end of the array.
 void circular_convolution(complex_t* x, complex_t* h, int n, complex_t* y) {
+    if (!x || !h || !y || n <= 0) return;
+
     complex_t* X = allocate_complex_array(n);
     complex_t* H = allocate_complex_array(n);
-    
+    if (!X || !H) {
+        free_complex_array(X);
+        free_complex_array(H);
+        return;
+    }
+
     // Copy inputs
-    memcpy(X, x, n * sizeof(complex_t));
-    memcpy(H, h, n * sizeof(complex_t));
+    memcpy(X, x, (size_t)n * sizeof(complex_t));
+    memcpy(H, h, (size_t)n * sizeof(complex_t));
     
     // FFT of both signals
     radix2_dit_fft(X, n, FFT_FORWARD);
@@ -95,17 +108,86 @@ void circular_convolution(complex_t* x, complex_t* h, int n, complex_t* y) {
     free_complex_array(H);
 }
 
-// 2D convolution for image processing
+// 2D convolution via row-column FFT decomposition
+//
+// 1. Zero-pad image and kernel to (fft_rows x fft_cols)
+// 2. Row-wise FFT, then column-wise FFT on both
+// 3. Pointwise multiply in 2-D frequency domain
+// 4. Inverse column-wise FFT, then inverse row-wise FFT
+// 5. Extract (rows+krows-1) x (cols+kcols-1) valid region
 void fft_convolution_2d(complex_t** image, int rows, int cols,
                        complex_t** kernel, int krows, int kcols,
                        complex_t** result) {
-    // This is a placeholder for 2D convolution
-    // Full implementation would require 2D FFT
-    // TODO: Implement 2D FFT convolution
-    (void)image; (void)rows; (void)cols;
-    (void)kernel; (void)krows; (void)kcols;
-    (void)result;
-    printf("2D convolution requires 2D FFT implementation\n");
+    int out_rows = rows + krows - 1;
+    int out_cols = cols + kcols - 1;
+    int fft_rows = next_power_of_two(out_rows);
+    int fft_cols = next_power_of_two(out_cols);
+
+    /* Flatten into row-major 1-D arrays, zero-padded */
+    complex_t* img_buf = allocate_complex_array(fft_rows * fft_cols);
+    complex_t* ker_buf = allocate_complex_array(fft_rows * fft_cols);
+    memset(img_buf, 0, fft_rows * fft_cols * sizeof(complex_t));
+    memset(ker_buf, 0, fft_rows * fft_cols * sizeof(complex_t));
+
+    for (int r = 0; r < rows; r++)
+        for (int c = 0; c < cols; c++)
+            img_buf[r * fft_cols + c] = image[r][c];
+
+    for (int r = 0; r < krows; r++)
+        for (int c = 0; c < kcols; c++)
+            ker_buf[r * fft_cols + c] = kernel[r][c];
+
+    /* Row-wise forward FFT */
+    for (int r = 0; r < fft_rows; r++) {
+        radix2_dit_fft(&img_buf[r * fft_cols], fft_cols, FFT_FORWARD);
+        radix2_dit_fft(&ker_buf[r * fft_cols], fft_cols, FFT_FORWARD);
+    }
+
+    /* Transpose both (swap to column-major for column-wise FFT) */
+    complex_t* tmp = allocate_complex_array(fft_rows * fft_cols);
+
+    for (int r = 0; r < fft_rows; r++)
+        for (int c = 0; c < fft_cols; c++)
+            tmp[c * fft_rows + r] = img_buf[r * fft_cols + c];
+    memcpy(img_buf, tmp, fft_rows * fft_cols * sizeof(complex_t));
+
+    for (int r = 0; r < fft_rows; r++)
+        for (int c = 0; c < fft_cols; c++)
+            tmp[c * fft_rows + r] = ker_buf[r * fft_cols + c];
+    memcpy(ker_buf, tmp, fft_rows * fft_cols * sizeof(complex_t));
+
+    /* Column-wise forward FFT (now stored as rows after transpose) */
+    for (int c = 0; c < fft_cols; c++) {
+        radix2_dit_fft(&img_buf[c * fft_rows], fft_rows, FFT_FORWARD);
+        radix2_dit_fft(&ker_buf[c * fft_rows], fft_rows, FFT_FORWARD);
+    }
+
+    /* Pointwise multiply */
+    for (int i = 0; i < fft_rows * fft_cols; i++)
+        img_buf[i] *= ker_buf[i];
+
+    /* Inverse column-wise FFT */
+    for (int c = 0; c < fft_cols; c++)
+        radix2_dit_fft(&img_buf[c * fft_rows], fft_rows, FFT_INVERSE);
+
+    /* Transpose back to row-major */
+    for (int r = 0; r < fft_rows; r++)
+        for (int c = 0; c < fft_cols; c++)
+            tmp[r * fft_cols + c] = img_buf[c * fft_rows + r];
+    memcpy(img_buf, tmp, fft_rows * fft_cols * sizeof(complex_t));
+
+    /* Inverse row-wise FFT */
+    for (int r = 0; r < fft_rows; r++)
+        radix2_dit_fft(&img_buf[r * fft_cols], fft_cols, FFT_INVERSE);
+
+    /* Copy valid region to result */
+    for (int r = 0; r < out_rows; r++)
+        for (int c = 0; c < out_cols; c++)
+            result[r][c] = img_buf[r * fft_cols + c];
+
+    free_complex_array(img_buf);
+    free_complex_array(ker_buf);
+    free_complex_array(tmp);
 }
 
 // Demonstration functions
@@ -146,9 +228,18 @@ void demo_convolution_types() {
     }
     printf("\n");
     
-    // Circular convolution
+    // Circular convolution of length nx needs both operands nx long; h is only
+    // nh long, so zero-extend it first.
     complex_t* y_circular = allocate_complex_array(nx);
-    circular_convolution(x, h, nx, y_circular);
+    complex_t* h_pad = allocate_complex_array(nx);
+    if (!y_circular || !h_pad) {
+        fprintf(stderr, "Error: allocation failed for circular convolution\n");
+        free_complex_array(y_circular);
+        return;
+    }
+    memcpy(h_pad, h, (size_t)nh * sizeof(complex_t));
+    circular_convolution(x, h_pad, nx, y_circular);
+    free_complex_array(h_pad);
     
     printf("Circular convolution result: ");
     for (int i = 0; i < nx; i++) {
@@ -193,18 +284,36 @@ void benchmark_convolution() {
         }
         
         fft_timer_t timer;
-        
-        // Time direct convolution
-        timer_start(&timer);
-        direct_convolution(x, nx, h, nh, y_direct);
-        timer_stop(&timer);
-        double time_direct = timer.elapsed_ms;
-        
-        // Time FFT convolution
-        timer_start(&timer);
-        fft_convolution(x, nx, h, nh, y_fft);
-        timer_stop(&timer);
-        double time_fft = timer.elapsed_ms;
+
+        /* Batch until clock() resolves the interval. One 128-point convolution
+         * is microseconds, so single-shot timing read 0.00 ms on both sides and
+         * the speedup printed nan; at 1024 points the direct time rounded to
+         * 1.00 ms and the FFT time to zero, printing inf. Both functions only
+         * read x and h, so repeating them is safe. */
+        int reps = 1;
+        double total = 0.0;
+        for (;;) {
+            timer_start(&timer);
+            for (int r = 0; r < reps; r++)
+                direct_convolution(x, nx, h, nh, y_direct);
+            timer_stop(&timer);
+            total = timer.elapsed_ms;
+            if (total >= 10.0 || reps >= (1 << 20)) break;
+            reps *= 4;
+        }
+        double time_direct = total / reps;
+
+        reps = 1;
+        for (;;) {
+            timer_start(&timer);
+            for (int r = 0; r < reps; r++)
+                fft_convolution(x, nx, h, nh, y_fft);
+            timer_stop(&timer);
+            total = timer.elapsed_ms;
+            if (total >= 10.0 || reps >= (1 << 20)) break;
+            reps *= 4;
+        }
+        double time_fft = total / reps;
         
         // Verify correctness
         double error = 0;
@@ -212,8 +321,9 @@ void benchmark_convolution() {
             error += cabs(y_direct[j] - y_fft[j]);
         }
         
-        printf("%d\t\t%d\t\t%.2f\t\t%.2f\t\t%.1fx",
-               nx, nh, time_direct, time_fft, time_direct / time_fft);
+        printf("%d\t\t%d\t\t%.3f\t\t%.3f\t\t%.1fx",
+               nx, nh, time_direct, time_fft,
+               time_fft > 0.0 ? time_direct / time_fft : 0.0);
         
         if (error / ny > 1e-10) {
             printf(" (Error: %.2e)", error / ny);

@@ -7,7 +7,7 @@
  * @file fft_gpu.h
  * @brief GPU acceleration for FFT (CUDA and Metal Performance Shaders)
  * 
- * New in v2.0.0: GPU support for massive performance gains
+ * New in v2.0.0, enhanced in v3.0.0: GPU support for massive performance gains
  */
 
 // GPU backend selection

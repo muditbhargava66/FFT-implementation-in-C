@@ -1,33 +1,23 @@
 # Quick Start Guide
 
-Get up and running with the FFT library in 5 minutes!
+Get up and running with the FFT library in 5 minutes. This guide targets the
+**3.0.0 release (23 October 2026)**.
 
 ## Installation
 
-### Using the Quick Start Script (Recommended)
+### All Platforms (CMake)
 
 ```bash
 # Clone the repository
 git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
 cd FFT-implementation-in-C
 
-# Run quick start
-chmod +x quickstart.sh
-./quickstart.sh
-```
+# Configure and build
+cmake -S . -B build
+cmake --build build --config Release
 
-Choose option 1 to build everything for first-time users.
-
-### Manual Installation
-
-```bash
-# Build the library and all examples
-make all
-
-# Or build only what you need
-make algorithms    # Core FFT algorithms
-make applications  # Example applications
-make tests        # Test suite
+# Run tests (1361/1361 checks expected)
+./build/bin/test_all
 ```
 
 ## Your First FFT
@@ -71,23 +61,23 @@ int main() {
 Compile and run:
 
 ```bash
-gcc -I./include test_fft.c -L./lib -lfft -lm -o test_fft
+gcc -I./include test_fft.c -L./build/lib -lfft_lib_c -lm -o test_fft
 ./test_fft
 ```
 
 ### Expected Output
 
 ```
-Frequency Bin | Magnitude
--------------|----------
-      0      | 0.000
-      1      | 0.000
-      2      | 0.000
-      3      | 0.000
-      4      | 0.000
-      5      | 8.000    <- Peak at 5 Hz
-      6      | 0.000
-      7      | 0.000
+| Frequency Bin | Magnitude                |
+| ------------- | ------------------------ |
+| 0             | 0.000                    |
+| 1             | 0.000                    |
+| 2             | 0.000                    |
+| 3             | 0.000                    |
+| 4             | 0.000                    |
+| 5             | 8.000    <- Peak at 5 Hz |
+| 6             | 0.000                    |
+| 7             | 0.000                    |
 ```
 
 ## Common Use Cases
@@ -176,18 +166,22 @@ complex_t* fft_convolve(complex_t* x, int nx, complex_t* h, int nh) {
 ### Run Pre-built Examples
 
 ```bash
-# Basic FFT demo
-./bin/radix2_dit
-
-# Audio spectrum analyzer
-./bin/audio_spectrum
+# Planning API, algorithm selection and wisdom demo
+./build/bin/demo_features
 
 # Convolution demo
-./bin/convolution
+./build/bin/convolution
+
+# Audio spectrum demo
+./build/bin/audio_spectrum
 
 # Run all benchmarks
-./bin/benchmark_all
+./build/bin/benchmark_all
 ```
+
+The per-algorithm teaching programs are not separate CMake targets; their
+`main()` functions are compiled out of the library with `LIB_BUILD`. Build one
+directly if you want its printed walkthrough.
 
 ### Explore Different Algorithms
 
@@ -228,7 +222,7 @@ bluestein_fft(signal, 1000, FFT_FORWARD);
 ### Compilation Errors
 Ensure you're linking with the math library:
 ```bash
-gcc your_file.c -lfft -lm  # -lm is important!
+gcc your_file.c -lfft_lib_c -lm  # -lm is important!
 ```
 
 ### Wrong Results

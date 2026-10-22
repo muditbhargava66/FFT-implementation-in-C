@@ -51,23 +51,19 @@
  * @param x Input/output array of complex numbers
  * @param n Length of the array
  * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
+ * @return FFT_OK, FFT_ERR_NULL, FFT_ERR_SIZE, or FFT_ERR_ALLOC
  */
-void naive_dft(complex_t* x, int n, fft_direction dir) {
+fft_error_t naive_dft(complex_t* x, int n, fft_direction dir) {
     /* Input validation */
-    if (!x || n <= 0) {
-        fprintf(stderr, "Error: Invalid input to naive_dft\n");
-        return;
-    }
+    if (!x) return FFT_ERR_NULL;
+    if (n <= 0) return FFT_ERR_SIZE;
     
     /* Allocate temporary storage */
     complex_t* temp = allocate_complex_array(n);
-    if (!temp) {
-        fprintf(stderr, "Error: Memory allocation failed in naive_dft\n");
-        return;
-    }
+    if (!temp) return FFT_ERR_ALLOC;
     
     /* Copy input to temporary array */
-    memcpy(temp, x, n * sizeof(complex_t));
+    memcpy(temp, x, (size_t)n * sizeof(complex_t));
     
     /* 
      * Direct DFT computation
@@ -94,6 +90,7 @@ void naive_dft(complex_t* x, int n, fft_direction dir) {
     
     /* Clean up */
     free_complex_array(temp);
+    return FFT_OK;
 }
 
 /**
@@ -101,8 +98,8 @@ void naive_dft(complex_t* x, int n, fft_direction dir) {
  * @param x Input/output array
  * @param n Array length
  */
-void dft_forward(complex_t* x, int n) {
-    naive_dft(x, n, FFT_FORWARD);
+fft_error_t dft_forward(complex_t* x, int n) {
+    return naive_dft(x, n, FFT_FORWARD);
 }
 
 /**
@@ -110,8 +107,8 @@ void dft_forward(complex_t* x, int n) {
  * @param x Input/output array
  * @param n Array length
  */
-void dft_inverse(complex_t* x, int n) {
-    naive_dft(x, n, FFT_INVERSE);
+fft_error_t dft_inverse(complex_t* x, int n) {
+    return naive_dft(x, n, FFT_INVERSE);
 }
 
 /**

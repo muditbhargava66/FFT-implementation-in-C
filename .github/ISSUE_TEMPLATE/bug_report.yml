@@ -1,0 +1,91 @@
+name: Bug report
+description: Report a reproducible correctness, memory-safety, or build defect.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A minimal reproducer is the difference between a
+        fixable bug and a guess. If the issue may be a security vulnerability,
+        stop and follow [SECURITY.md](SECURITY.md) instead of opening a public
+        issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Actual behaviour, including any crash, wrong bin, or error code.
+      placeholder: The plan was created, but fft_execute() returned ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: The 440 Hz component should appear in bin 41 ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Output of fft_version(), or the commit hash.
+      placeholder: FFT Library v3.0.0 (2026-10-23) - ...
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows (MinGW-w64)
+        - Linux (GCC)
+        - Linux (Clang)
+        - macOS (Clang)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: compiler
+    attributes:
+      label: Compiler and version
+      placeholder: gcc 13.2.0 / clang 18.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: build
+    attributes:
+      label: Build configuration
+      description: CMake options and any extra compiler flags.
+      placeholder: |
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFFT_NATIVE_ARCH=OFF
+        cmake --build build
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: Code, transform size, planning flags, and input data.
+      render: c
+      placeholder: |
+        int n = 512;
+        fft_plan_t p = fft_plan_dft_1d(n, in, out, -1, FFT_ESTIMATE);
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitizer or debug output
+      description: Optional ASan/UBSan/Valgrind output, stack trace, or logs.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go through SECURITY.md).
+          required: true

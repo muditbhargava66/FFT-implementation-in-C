@@ -8,7 +8,7 @@ This guide provides an overview of all FFT algorithms implemented in this projec
 |-----------|------------|------------------|---------------|
 | Radix-2 DIT | O(N log N) | Power of 2 | General purpose, industry standard |
 | Radix-2 DIF | O(N log N) | Power of 2 | Hardware implementations |
-| Radix-4 | O(N log N) | Power of 4 | Reduced operations vs Radix-2 |
+| Radix-4 | O(N log N) | Power of 2 | Reduced operations vs Radix-2 |
 | Split-Radix | O(N log N) | Power of 2 | Minimum operation count |
 | Bluestein | O(N log N) | Any size | Non-power-of-2 sizes |
 | Mixed-Radix | O(N log N) | Composite | Efficient for specific sizes |
@@ -57,9 +57,10 @@ Processes 4 samples at a time, reducing the number of stages.
 
 **Key Features:**
 - 25% fewer complex multiplications than Radix-2
-- Works for any power of 2 (uses radix-2 for odd powers)
-- Optimized implementation with reliable radix-2 butterflies
-- Enhanced with compiler optimization hints and branch prediction
+- Works for any power of 2 (one leading radix-2 stage for odd powers)
+- True radix-4 butterflies; twiddles advance multiplicatively per stage
+- Costs an O(n) digit-reversal buffer, which is why `FFT_CONSERVE_MEMORY`
+  selects in-place radix-2 DIT instead
 
 **Mathematical Basis:**
 Decomposes DFT into 4 interleaved subsequences:
@@ -120,16 +121,24 @@ mixed_radix_fft(signal, n, FFT_FORWARD);  // n = product of small primes
 
 ## Algorithm Selection Guide
 
+The recommendations below follow the measurements in the
+[Performance Guide](performance.md), not the operation counts. Where the two
+disagree, the measurements are the ones that describe what you will observe.
+
 ### For Power-of-2 Sizes
 
 1. **General Purpose**: Use Radix-2 DIT
    - Well-tested and understood
-   - Good cache behavior
-   - Easy to optimize
+   - In-place, no scratch allocation
+   - The reference column every other kernel is measured against; nothing beats
+     it by more than ~17% and only radix-4 does so above 256
 
-2. **Minimum Operations**: Use Split-Radix
-   - Best theoretical complexity
-   - Worth it for large transforms
+2. **Fewer Multiplications**: Split-Radix, if you need the count rather than the
+   time
+   - About a third fewer complex multiplications than radix-2
+   - **1.6-2.9x slower in wall time**, because the recursion moves roughly 2.5n
+     elements per level and memory traffic, not flops, is the constraint
+   - It also cannot run in place, so it allocates 6n complex numbers
 
 3. **Hardware/FPGA**: Consider Radix-2 DIF or Radix-4
    - Better pipeline structure
@@ -138,16 +147,28 @@ mixed_radix_fft(signal, n, FFT_FORWARD);  // n = product of small primes
 ### For Arbitrary Sizes
 
 1. **Prime Sizes**: Use Bluestein
-   - Only option for prime sizes
-   - Reasonable performance
+   - The only O(N log N) option here: mixed-radix has no factor to split on and
+     falls back to a direct O(N²) DFT, measured 241x slower at N=1021
+   - Costs roughly 9N complex numbers of scratch
 
-2. **Composite Sizes**: Use Mixed-Radix
-   - Better than Bluestein for highly composite numbers
-   - Exploits factorization
+2. **Composite Sizes**: Still Bluestein, unless memory is the binding constraint
+   - Measured faster than mixed-radix at every composite length tried: 2.1x at
+     N=360, 3.2x at N=1000, 6.0x at N=4095
+   - Mixed-radix is the right call when the 2N padding Bluestein needs does not
+     fit; pass `FFT_CONSERVE_MEMORY` and the planner selects it for lengths that
+     factor into 2, 3, 5 and 7
+   - The same flag keeps power-of-two lengths on in-place radix-2 DIT instead of
+     radix-4, whose digit-reversal permutation allocates an O(n) scratch buffer
 
-3. **Small Sizes**: Consider Naive DFT
-   - Simple and direct
-   - Competitive for N < 32
+3. **Small Sizes**: Radix-2 DIT still wins
+   - Naive DFT is not competitive at any size: measured 32x slower than radix-2
+     DIT at N=8, rising to 498x at N=128, because it evaluates a complex
+     exponential per term
+   - `optimized_dft` precomputes or accumulates its twiddles and does pull ahead
+     of naive DFT from N=64 (15x radix-2, where naive is 261x), but it is still
+     15-25x behind radix-2 throughout
+   - Use the DFTs as references for checking the FFTs, which is what the test
+     suite does
 
 ## Performance Characteristics
 
@@ -160,6 +181,9 @@ mixed_radix_fft(signal, n, FFT_FORWARD);  // n = product of small primes
 
 ### Parallelization Potential
 
+How well each algorithm *would* parallelise, if a threaded kernel existed. None
+does today — see `docs/optimizations.md`.
+
 - **High**: Radix-2 (independent butterflies)
 - **Medium**: Radix-4, Split-Radix
 - **Low**: Recursive implementations
@@ -168,8 +192,10 @@ mixed_radix_fft(signal, n, FFT_FORWARD);  // n = product of small primes
 
 All algorithms are numerically stable, but:
 - Radix-2 has well-understood error propagation
-- Bluestein may accumulate more rounding errors
-- Fixed-point implementations need careful scaling
+- Bluestein may accumulate more rounding errors, because it runs three transforms
+  of about 4n instead of one of n
+- A fixed-point implementation would need careful scaling, but there is no
+  fixed-point path in this library
 
 ## Implementation Details
 
@@ -190,8 +216,9 @@ All algorithms are numerically stable, but:
    ```
 
 2. **Bit Reversal Optimization**
-   - SIMD-friendly bit manipulation for small sizes
-   - Optimized lookup tables for common cases
+   - A four-stage swap network for `log2n <= 8`, a shift-and-accumulate loop
+     above that. No lookup table and no SIMD — it is plain integer bit
+     manipulation
 
 3. **Compiler Optimization Hints**
    ```c
@@ -206,7 +233,9 @@ All algorithms are numerically stable, but:
 4. **Memory Management**
    - Proper error checking and validation
    - Cache-optimized memory access patterns
-   - Aligned memory allocation for SIMD
+   - Aligned allocation (64-byte from `fft_alloc_complex`, 32-byte from
+     `allocate_complex_array` on Windows), which helps cache-line and page
+     behaviour; there is no SIMD path that would need it
 
 ## Next Steps
 

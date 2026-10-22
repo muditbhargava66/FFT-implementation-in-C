@@ -3,6 +3,8 @@ bin/
 obj/
 lib/
 build/
+build-*/
+cmake-build-*/
 dist/
 
 # Object files
@@ -28,12 +30,21 @@ dist/
 *.x86_64
 *.hex
 
+# CMake files (in case a build is configured in-source)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CMakeUserPresets.json
+
 # Debug files
 *.dSYM/
 *.su
 *.idb
 *.pdb
 gmon.out
+*.stackdump
+*.dmp
 
 # IDE files
 .vscode/
@@ -41,9 +52,11 @@ gmon.out
 *.swp
 *.swo
 *~
-.DS_Store
 
 # Documentation build
+site/
+docs/site/
+docs/build/
 docs/_build/
 docs/.doctrees/
 *.log
@@ -68,14 +81,40 @@ __pycache__/
 .Python
 env/
 venv/
-.venv
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
 
 # Temporary files
 *.tmp
 *.temp
 *.bak
 *.backup
+*.orig
+*.rej
 .cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test and debug files
+debug_benchmark.*
+fixed_benchmark.*
+test_large_sizes.*
+test_slow_algorithms.*
+*_test.log
+runtime_test.log
+build_test.log
 
 # Core dumps
 # core

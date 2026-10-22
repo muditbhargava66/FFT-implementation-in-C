@@ -13,10 +13,10 @@
  */
 
 // Recursive FFT function
-void recursive_fft(complex_t* x, complex_t* result, int n, int stride, fft_direction dir) {
+static fft_error_t recursive_fft(complex_t* x, complex_t* result, int n, int stride, fft_direction dir) {
     if (n == 1) {
         result[0] = x[0];
-        return;
+        return FFT_OK;
     }
     
     int half_n = n / 2;
@@ -24,33 +24,48 @@ void recursive_fft(complex_t* x, complex_t* result, int n, int stride, fft_direc
     // Allocate temporary arrays for even and odd results
     complex_t* even_result = allocate_complex_array(half_n);
     complex_t* odd_result = allocate_complex_array(half_n);
+    if (!even_result || !odd_result) {
+        free_complex_array(even_result);
+        free_complex_array(odd_result);
+        return FFT_ERR_ALLOC;
+    }
     
     // Recursively compute FFT of even-indexed elements
-    recursive_fft(x, even_result, half_n, stride * 2, dir);
-    
-    // Recursively compute FFT of odd-indexed elements
-    recursive_fft(x + stride, odd_result, half_n, stride * 2, dir);
+    fft_error_t err = recursive_fft(x, even_result, half_n, stride * 2, dir);
+    if (!err) {
+        // Recursively compute FFT of odd-indexed elements
+        err = recursive_fft(x + stride, odd_result, half_n, stride * 2, dir);
+    }
     
     // Combine results
-    for (int k = 0; k < half_n; k++) {
-        complex_t t = twiddle_factor(k, n, dir) * odd_result[k];
-        result[k] = even_result[k] + t;
-        result[k + half_n] = even_result[k] - t;
+    if (!err) {
+        for (int k = 0; k < half_n; k++) {
+            complex_t t = twiddle_factor(k, n, dir) * odd_result[k];
+            result[k] = even_result[k] + t;
+            result[k + half_n] = even_result[k] - t;
+        }
     }
     
     free_complex_array(even_result);
     free_complex_array(odd_result);
+    return err;
 }
 
 // Main recursive FFT wrapper
-void fft_recursive(complex_t* x, int n, fft_direction dir) {
-    CHECK_POWER_OF_TWO(n);
-    
+fft_error_t fft_recursive(complex_t* x, int n, fft_direction dir) {
+    if (!x) return FFT_ERR_NULL;
+    FFT_REQUIRE_POW2(n);
+
     complex_t* result = allocate_complex_array(n);
-    recursive_fft(x, result, n, 1, dir);
+    if (!result) return FFT_ERR_ALLOC;
+    fft_error_t err = recursive_fft(x, result, n, 1, dir);
+    if (err) {
+        free_complex_array(result);
+        return err;
+    }
     
     // Copy result back to input array
-    memcpy(x, result, n * sizeof(complex_t));
+    memcpy(x, result, (size_t)n * sizeof(complex_t));
     free_complex_array(result);
     
     // Scale for inverse FFT
@@ -59,15 +74,16 @@ void fft_recursive(complex_t* x, int n, fft_direction dir) {
             x[i] /= n;
         }
     }
+    return FFT_OK;
 }
 
 // Wrapper functions
-void fft_recursive_forward(complex_t* x, int n) {
-    fft_recursive(x, n, FFT_FORWARD);
+fft_error_t fft_recursive_forward(complex_t* x, int n) {
+    return fft_recursive(x, n, FFT_FORWARD);
 }
 
-void ifft_recursive(complex_t* x, int n) {
-    fft_recursive(x, n, FFT_INVERSE);
+fft_error_t ifft_recursive(complex_t* x, int n) {
+    return fft_recursive(x, n, FFT_INVERSE);
 }
 
 // Visualize recursion tree

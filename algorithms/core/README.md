@@ -17,9 +17,12 @@ This directory contains implementations of fundamental FFT algorithms.
 - **Best for**: Systems where output can be in bit-reversed order
 
 ### 3. Radix-4 (radix4.c)
-- **Description**: Processes 4 points at a time
+- **Description**: Processes 4 points at a time, with one leading radix-2 stage
+  when `log2(n)` is odd
 - **Complexity**: O(n log n) with 25% fewer multiplications than radix-2
-- **Requirements**: Input size must be power of 4
+- **Requirements**: Input size must be a power of 2 (not only a power of 4)
+- **Memory**: O(n) digit-reversal scratch; use `FFT_CONSERVE_MEMORY` to select
+  in-place radix-2 DIT instead
 - **Best for**: When multiplication is expensive
 
 ### 4. Split-Radix (split_radix.c)
@@ -46,24 +49,17 @@ This directory contains implementations of fundamental FFT algorithms.
 - **Requirements**: Input size must be power of 2
 - **Best for**: Understanding FFT algorithm structure
 
-### 8. Iterative FFT (iterative_fft.c)
-- **Description**: Memory-efficient iterative implementation
-- **Complexity**: O(n log n)
-- **Requirements**: Input size must be power of 2
-- **Best for**: Embedded systems, cache efficiency
-
 ## Quick Comparison
 
 | Algorithm | Multiplications | Memory | Flexibility | Speed |
 |-----------|----------------|---------|-------------|--------|
 | Radix-2 DIT | n/2 log₂(n) | O(1) | Power of 2 | ★★★★☆ |
 | Radix-2 DIF | n/2 log₂(n) | O(1) | Power of 2 | ★★★★☆ |
-| Radix-4 | 3n/8 log₂(n) | O(1) | Power of 4 | ★★★★☆ |
+| Radix-4 | 3n/8 log₂(n) | O(n) | Power of 2 | ★★★★☆ |
 | Split-Radix | ~n/3 log₂(n) | O(n) | Power of 2 | ★★★★★ |
 | Bluestein | O(n log n) | O(n) | Any size | ★★★☆☆ |
 | Mixed-Radix | Varies | O(n) | Any size | ★★★☆☆ |
 | Recursive | n/2 log₂(n) | O(n log n) | Power of 2 | ★★☆☆☆ |
-| Iterative | n/2 log₂(n) | O(1) | Power of 2 | ★★★★☆ |
 
 ## Usage Example
 
@@ -94,32 +90,25 @@ int main() {
 
 ## Building
 
-Each algorithm can be built independently:
+Core algorithms are compiled into a single static library by the top-level
+CMake build; they are not built as separate programs.
 
 ```bash
-make radix2_dit
-make radix4
-# etc...
+cmake -S . -B build
+cmake --build build
 ```
 
-Or build all core algorithms:
+Each file also contains a demonstration `main()` guarded by `#ifndef LIB_BUILD`.
+To run one individually, compile that file directly (without `LIB_BUILD`):
 
 ```bash
-make core
+gcc -O2 -std=c11 -Iinclude algorithms/core/radix4.c utils/fft_utils.c -lm -o radix4
+./radix4
 ```
 
 ## Testing
 
-Run the built-in tests in each file:
-
 ```bash
-./radix2_dit
-./split_radix
-```
-
-Or run the comprehensive test suite:
-
-```bash
-make test
-./bin/test_all
+ctest --test-dir build
+./build/bin/test_all        # exits non-zero if any check fails
 ```

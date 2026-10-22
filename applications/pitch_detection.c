@@ -1,5 +1,5 @@
-#include "../include/fft_common.h"
-#include "../include/fft_algorithms.h"
+#include "fft_common.h"
+#include "fft_algorithms.h"
 
 /**
  * Music Pitch Detection using FFT
@@ -129,11 +129,22 @@ double detect_pitch_hps(complex_t* spectrum, int n, double sample_rate, int harm
     int min_bin = (int)(80 * n / sample_rate);
     int max_bin = (int)(1000 * n / sample_rate);
     if (max_bin > n/(2*harmonics)) max_bin = n/(2*harmonics);
-    
+
+    /* A candidate fundamental has to be a real spectral peak, not leakage.
+     * Without this floor a pure tone's tiny low-frequency leakage multiplies
+     * with a harmonic and outranks the true fundamental: A4=440 measured as
+     * 107 Hz. */
+    double max_mag = 0.0;
+    for (int i = 1; i < n/2; i++) {
+        if (magnitude[i] > max_mag) max_mag = magnitude[i];
+    }
+    double floor_mag = 0.01 * max_mag;
+
     double max_hps = 0;
     int peak_bin = 0;
     
     for (int i = min_bin; i < max_bin; i++) {
+        if (magnitude[i] < floor_mag) continue;
         if (hps[i] > max_hps) {
             max_hps = hps[i];
             peak_bin = i;
@@ -196,12 +207,31 @@ typedef struct {
     double cents_off;
 } pitch_result_t;
 
+static int pitches_agree(double a, double b) {
+    if (a <= 0.0 || b <= 0.0) return 0;
+    double larger = (a > b) ? a : b;
+    return fabs(a - b) <= 0.05 * larger;
+}
+
+/* Is `f` a small integer multiple of `base`? Autocorrelation can lock onto a
+ * subharmonic of a chord: for C4+E4+G4 it reports ~86 Hz, and 261.63/86.13 is
+ * almost exactly 3. The strongest spectral peak is the more useful answer. */
+static int is_subharmonic_multiple(double f, double base) {
+    if (f <= 0.0 || base <= 0.0) return 0;
+    double ratio = f / base;
+    int multiple = (int)lround(ratio);
+    return multiple >= 2 && multiple <= 5 && fabs(ratio - multiple) <= 0.05 * multiple;
+}
+
 pitch_result_t detect_pitch_with_confidence(complex_t* signal, int n, double sample_rate) {
     pitch_result_t result = {0};
     
     // Method 1: Peak detection
     complex_t* spectrum = allocate_complex_array(n);
     memcpy(spectrum, signal, n * sizeof(complex_t));
+    /* Window before transforming. Spectral leakage from an unwindowed tone
+     * gives the harmonic product something to multiply besides the harmonics. */
+    apply_window_hann(spectrum, n);
     radix2_dit_fft(spectrum, n, FFT_FORWARD);
     
     double pitch1 = detect_pitch_peak(spectrum, n, sample_rate);
@@ -212,17 +242,29 @@ pitch_result_t detect_pitch_with_confidence(complex_t* signal, int n, double sam
     // Method 3: Autocorrelation
     double pitch3 = detect_pitch_autocorr(signal, n, sample_rate);
     
-    // Combine results
-    result.frequency = pitch2;  // HPS is often most reliable
-    
-    // Estimate confidence based on agreement between methods
-    double avg_pitch = (pitch1 + pitch2 + pitch3) / 3;
-    double variance = pow(pitch1 - avg_pitch, 2) + 
-                     pow(pitch2 - avg_pitch, 2) + 
-                     pow(pitch3 - avg_pitch, 2);
-    variance /= 3;
-    
-    result.confidence = 1.0 / (1.0 + sqrt(variance) / avg_pitch);
+    /* Prefer the estimates two methods agree on, and prefer autocorrelation
+     * when it agrees with the spectral peak: its lag grid is finer than the FFT
+     * bin spacing. HPS is not trusted alone; on a pure tone it has no harmonic
+     * series to find and previously won with a leakage product. */
+    double chosen;
+    if (pitches_agree(pitch1, pitch3)) {
+        chosen = pitch3;
+    } else if (pitches_agree(pitch2, pitch3)) {
+        chosen = is_subharmonic_multiple(pitch1, pitch3) ? pitch1 : pitch3;
+    } else if (pitches_agree(pitch1, pitch2)) {
+        chosen = pitch2;
+    } else {
+        chosen = pitch1 > 0.0 ? pitch1 : (pitch2 > 0.0 ? pitch2 : pitch3);
+    }
+
+    int votes = 0;
+    if (pitches_agree(pitch1, chosen)) votes++;
+    if (pitches_agree(pitch2, chosen)) votes++;
+    if (pitches_agree(pitch3, chosen)) votes++;
+
+    result.frequency = chosen;
+    // Agreement fraction; a lone estimate is a third, not a certainty.
+    result.confidence = votes / 3.0;
     
     // Find musical note
     result.note = frequency_to_note_name(result.frequency);
@@ -321,6 +363,7 @@ int main() {
     
     complex_t* spectrum = allocate_complex_array(n);
     memcpy(spectrum, signal, n * sizeof(complex_t));
+    apply_window_hann(spectrum, n);
     radix2_dit_fft(spectrum, n, FFT_FORWARD);
     
     double pitch_peak = detect_pitch_peak(spectrum, n, sample_rate);

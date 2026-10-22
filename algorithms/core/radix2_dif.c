@@ -12,8 +12,9 @@
  * Space Complexity: O(1) for in-place operation
  */
 
-void radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
-    CHECK_POWER_OF_TWO(n);
+fft_error_t radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
+    if (!x) return FFT_ERR_NULL;
+    FFT_REQUIRE_POW2(n);
     
     int log2n = log2_int(n);
     
@@ -56,15 +57,16 @@ void radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
             x[i] /= n;
         }
     }
+    return FFT_OK;
 }
 
 // Wrapper functions
-void fft_radix2_dif(complex_t* x, int n) {
-    radix2_dif_fft(x, n, FFT_FORWARD);
+fft_error_t fft_radix2_dif(complex_t* x, int n) {
+    return radix2_dif_fft(x, n, FFT_FORWARD);
 }
 
-void ifft_radix2_dif(complex_t* x, int n) {
-    radix2_dif_fft(x, n, FFT_INVERSE);
+fft_error_t ifft_radix2_dif(complex_t* x, int n) {
+    return radix2_dif_fft(x, n, FFT_INVERSE);
 }
 
 #ifndef LIB_BUILD

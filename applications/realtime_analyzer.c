@@ -1,5 +1,5 @@
-#include "../include/fft_common.h"
-#include "../include/fft_algorithms.h"
+#include "fft_common.h"
+#include "fft_algorithms.h"
 #include <unistd.h>
 
 /**
@@ -130,7 +130,11 @@ void display_spectrum(analyzer_t* analyzer) {
     for (int i = 0; i < display_bins; i++) {
         int bin = i * bin_step;
         double freq = frequencies[bin];
-        double mag_db = 20 * log10(magnitude[bin] / max_mag + 1e-10);
+        /* Before the first hop has completed, every average is still zero and
+         * dividing by max_mag printed NaN for the whole first display. */
+        double mag_db = (max_mag > 0.0)
+                            ? 20 * log10(magnitude[bin] / max_mag + 1e-10)
+                            : -60.0;
         int bar_length = (int)((mag_db + 60) / 60 * bar_width);
         if (bar_length < 0) bar_length = 0;
         if (bar_length > bar_width) bar_length = bar_width;

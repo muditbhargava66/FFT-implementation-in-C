@@ -1,540 +1,862 @@
-#include "../include/fft_common.h"
 #include "../include/fft_algorithms.h"
+#include "../include/fft_auto.h"
+#include "../include/fft_common.h"
 #include <float.h>
+#include <stdlib.h>
 
 /**
  * Comprehensive Test Suite for FFT Implementations
- * 
- * Tests all FFT algorithms for:
- * - Correctness (vs reference implementation)
- * - Special cases (impulse, DC, Nyquist)
- * - Properties (linearity, Parseval's theorem, convolution)
- * - Edge cases (size 1, maximum size)
- * - Numerical stability
+ *
+ * Correctness is established by comparing every implementation against an
+ * independent direct DFT computed here (sharing no code with the library),
+ * plus algebraic property tests. The reference comparison is what catches
+ * ordering and twiddle-index defects that property tests cannot see.
  */
 
-// Test configuration
+/* ---------- configuration ---------- */
+
 typedef struct {
-    double tolerance;
-    int verbose;
-    int stop_on_failure;
+  double tolerance;   /* relative tolerance for reference agreement */
+  int verbose;
+  int stop_on_failure;
 } test_config_t;
 
-// Test result
-typedef struct {
-    const char* test_name;
-    const char* impl_name;
-    int passed;
-    double max_error;
-    char error_message[256];
-} test_result_t;
+/* ---------- implementation registry ---------- */
 
-// Import FFT implementations
-extern void radix2_dit_fft(complex_t* x, int n, fft_direction dir);
-extern void radix2_dif_fft(complex_t* x, int n, fft_direction dir);
-extern void radix4_fft(complex_t* x, int n, fft_direction dir);
-extern void split_radix_fft(complex_t* x, int n, fft_direction dir);
-extern void bluestein_fft(complex_t* x, int n, fft_direction dir);
-extern void mixed_radix_fft(complex_t* x, int n, fft_direction dir);
-extern void naive_dft(complex_t* x, int n, fft_direction dir);
-extern void fft_recursive(complex_t* x, int n, fft_direction dir);
-
-// FFT implementation list
 typedef struct {
-    const char* name;
-    void (*fft_func)(complex_t*, int, fft_direction);
-    int requires_power_of_2;
-    int requires_power_of_4;
+  const char *name;
+  fft_error_t (*fft_func)(complex_t *, int, fft_direction);
+  int requires_power_of_2;
+  int max_size; /* skip sizes above this; direct DFTs are O(n^2) */
 } fft_implementation_t;
 
-fft_implementation_t implementations[] = {
-    {"Radix-2 DIT", radix2_dit_fft, 1, 0},
-    {"Radix-2 DIF", radix2_dif_fft, 1, 0},
-    {"Radix-4", radix4_fft, 1, 1},
-    {"Split-Radix", split_radix_fft, 1, 0},
-    {"Bluestein", bluestein_fft, 0, 0},
-    {"Mixed-Radix", mixed_radix_fft, 0, 0},
-    {"Recursive", fft_recursive, 1, 0},
-    {"Naive DFT", naive_dft, 0, 0}
-};
+static fft_implementation_t implementations[] = {
+    {"Radix-2 DIT", radix2_dit_fft, 1, 16384},
+    {"Radix-2 DIF", radix2_dif_fft, 1, 16384},
+    {"Radix-4", radix4_fft, 1, 16384},
+    {"Split-Radix", split_radix_fft, 1, 16384},
+    {"Bluestein", bluestein_fft, 0, 4096},
+    {"Mixed-Radix", mixed_radix_fft, 0, 4096},
+    {"Recursive", fft_recursive, 1, 4096},
+    {"Naive DFT", naive_dft, 0, 256}};
 
-int num_implementations = sizeof(implementations) / sizeof(implementations[0]);
+static const int num_implementations =
+    sizeof(implementations) / sizeof(implementations[0]);
 
-// Test 1: Impulse response
-test_result_t test_impulse_response(fft_implementation_t* impl, int n, test_config_t* config) {
-    test_result_t result = {
-        .test_name = "Impulse Response",
-        .impl_name = impl->name,
-        .passed = 1
-    };
-    
-    complex_t* signal = allocate_complex_array(n);
-    
-    // Create impulse
-    generate_impulse(signal, n);
-    
-    // Apply FFT
+/* ---------- counters ---------- */
+
+static int g_total_passed = 0;
+static int g_total_tests = 0;
+static int g_failures = 0;
+
+static void report(const char *scope, const char *test, int passed,
+                   double error, const char *detail) {
+  g_total_tests++;
+  if (passed) {
+    g_total_passed++;
+  } else {
+    g_failures++;
+    printf("  [FAIL] %-14s %-24s err=%.3e  %s\n", scope, test, error,
+           detail ? detail : "");
+  }
+}
+
+/* ---------- independent reference DFT ---------- */
+/*
+ * Computed by direct summation with trigonometry obtained straight from the
+ * definition of the DFT. Deliberately does not use twiddle_factor(), the
+ * library's bit_reverse(), or any library allocation helper, so a defect in
+ * those cannot hide by being reproduced on both sides of the comparison.
+ */
+
+/* One DFT bin in O(n). Checking selected bins gives an independent reference
+ * without paying the O(n^2) cost of a full direct transform at large n. */
+static complex_t reference_bin(const complex_t *in, int n, int k,
+                               fft_direction dir) {
+  complex_t acc = 0.0;
+  for (int i = 0; i < n; i++) {
+    double angle =
+        (double)dir * 2.0 * PI * (double)((long)i * k % (long)n) / (double)n;
+    acc += in[i] * (cos(angle) + I * sin(angle));
+  }
+  return (dir == FFT_INVERSE) ? acc / (double)n : acc;
+}
+
+static double rel_err(complex_t a, complex_t b) {
+  double s = cabs(b);
+  return cabs(a - b) / (s > 1.0 ? s : 1.0);
+}
+
+/* Independent of the library's log2_int() on purpose. */
+static int ilog2i(int n) {
+  int l = 0;
+  while (n > 1) { n >>= 1; l++; }
+  return l;
+}
+
+/*
+ * Cooley-Tukey is backward stable with rms error O(eps*sqrt(log n)), so the
+ * expected deviation from a direct DFT grows slowly with n. A fixed 1e-10
+ * would flag perfectly good double-precision results at large n; scaling the
+ * bound keeps the test sensitive to the defect class that matters (ordering
+ * and twiddle-index errors produce O(1) deviations, not O(1e-9)).
+ */
+static double tol_for(const test_config_t *c, int n) {
+  return c->tolerance * (1.0 + (double)ilog2i(n > 1 ? n : 2));
+}
+
+static void fill_random(complex_t *x, int n, unsigned seed) {
+  srand(seed);
+  for (int i = 0; i < n; i++) {
+    x[i] = ((double)rand() / RAND_MAX - 0.5) +
+           I * ((double)rand() / RAND_MAX - 0.5);
+  }
+}
+
+/* ---------- test: agreement with the reference DFT ---------- */
+
+/*
+ * Checks a specific set of output bins against directly-computed values.
+ * For n <= 1024 every bin is checked; above that a strided sample plus the
+ * edges, which keeps the reference at O(n * bins) instead of O(n^2) while
+ * still pinning the bin indices (a permutation error moves a checked bin).
+ */
+static void test_reference_agreement(fft_implementation_t *impl, int n,
+                                     test_config_t *config) {
+  complex_t *work = malloc((size_t)n * sizeof(complex_t));
+  complex_t *orig = malloc((size_t)n * sizeof(complex_t));
+  if (!work || !orig) {
+    report(impl->name, "reference alloc failed", 0, 0.0, "out of memory");
+    free(work);
+    free(orig);
+    return;
+  }
+
+  fill_random(orig, n, 100000u + (unsigned)n);
+
+  int step = (n <= 1024) ? 1 : n / 64;
+  if (step < 1) step = 1;
+
+  struct { int idx; fft_direction dir; } checks[512];
+  int nchecks = 0;
+  for (int k = 0; k < n && nchecks < 480; k += step) {
+    checks[nchecks].idx = k;
+    checks[nchecks].dir = FFT_FORWARD;
+    nchecks++;
+  }
+  /* Edges and the Nyquist bin, where ordering defects show up first. */
+  int extra[] = {0, 1, n / 2, n / 2 + 1, n - 2, n - 1};
+  for (int e = 0; e < 6 && nchecks < 510; e++) {
+    int k = extra[e];
+    if (k < 0 || k >= n) continue;
+    int dup = 0;
+    for (int q = 0; q < nchecks; q++)
+      if (checks[q].idx == k && checks[q].dir == FFT_FORWARD) dup = 1;
+    if (!dup) {
+      checks[nchecks].idx = k;
+      checks[nchecks].dir = FFT_FORWARD;
+      nchecks++;
+    }
+  }
+
+  /* Forward */
+  memcpy(work, orig, (size_t)n * sizeof(complex_t));
+  impl->fft_func(work, n, FFT_FORWARD);
+  double worst = 0.0;
+  int worst_bin = -1;
+  for (int q = 0; q < nchecks; q++) {
+    int k = checks[q].idx;
+    double e = rel_err(work[k], reference_bin(orig, n, k, FFT_FORWARD));
+    if (e > worst) {
+      worst = e;
+      worst_bin = k;
+    }
+  }
+  char detail[128];
+  snprintf(detail, sizeof(detail), "forward, worst bin %d of %d checked",
+           worst_bin, nchecks);
+  double bound = tol_for(config, n);
+  int ok = worst <= bound;
+  report(impl->name, "reference agreement fwd", ok, worst, ok ? NULL : detail);
+
+  /* Inverse */
+  memcpy(work, orig, (size_t)n * sizeof(complex_t));
+  impl->fft_func(work, n, FFT_INVERSE);
+  worst = 0.0;
+  for (int q = 0; q < nchecks; q++) {
+    int k = checks[q].idx;
+    double e = rel_err(work[k], reference_bin(orig, n, k, FFT_INVERSE));
+    if (e > worst) worst = e;
+  }
+  ok = worst <= bound;
+  report(impl->name, "reference agreement inv", ok, worst,
+         ok ? NULL : "inverse transform disagrees");
+
+  free(work);
+  free(orig);
+}
+
+/* ---------- property tests ---------- */
+
+static void test_impulse_response(fft_implementation_t *impl, int n,
+                                  test_config_t *config) {
+  complex_t *signal = calloc((size_t)n, sizeof(complex_t));
+  signal[0] = 1.0;
+  impl->fft_func(signal, n, FFT_FORWARD);
+
+  double worst = 0.0;
+  for (int i = 0; i < n; i++) {
+    double e = fabs(cabs(signal[i]) - 1.0);
+    if (e > worst) worst = e;
+  }
+  int ok = worst <= tol_for(config, n);
+  report(impl->name, "impulse response", ok, worst, ok ? NULL : "|X[k]| != 1");
+  free(signal);
+}
+
+static void test_dc_signal(fft_implementation_t *impl, int n,
+                           test_config_t *config) {
+  complex_t *signal = malloc((size_t)n * sizeof(complex_t));
+  for (int i = 0; i < n; i++) signal[i] = 1.0;
+  impl->fft_func(signal, n, FFT_FORWARD);
+
+  /* Normalise by the transform scale (the DC bin is n), so round-off on the
+   * near-zero bins is measured relative to what the transform can resolve. */
+  double worst = 0.0;
+  for (int i = 0; i < n; i++) {
+    double want = (i == 0) ? (double)n : 0.0;
+    double e = cabs(signal[i] - want) / (double)n;
+    if (e > worst) worst = e;
+  }
+  int ok = worst <= tol_for(config, n);
+  report(impl->name, "dc signal", ok, worst, ok ? NULL : "DC bin wrong");
+  free(signal);
+}
+
+static void test_linearity(fft_implementation_t *impl, int n,
+                           test_config_t *config) {
+  complex_t *a = malloc((size_t)n * sizeof(complex_t));
+  complex_t *b = malloc((size_t)n * sizeof(complex_t));
+  complex_t *s = malloc((size_t)n * sizeof(complex_t));
+  complex_t *fs = malloc((size_t)n * sizeof(complex_t));
+  fill_random(a, n, 5000u + (unsigned)n);
+  fill_random(b, n, 9000u + (unsigned)n);
+  for (int i = 0; i < n; i++) s[i] = 2 * a[i] + 3 * b[i];
+
+  memcpy(fs, s, (size_t)n * sizeof(complex_t));
+  impl->fft_func(fs, n, FFT_FORWARD);
+  impl->fft_func(a, n, FFT_FORWARD);
+  impl->fft_func(b, n, FFT_FORWARD);
+
+  double worst = 0.0;
+  for (int i = 0; i < n; i++) {
+    double e = rel_err(fs[i], 2 * a[i] + 3 * b[i]);
+    if (e > worst) worst = e;
+  }
+  int ok = worst <= tol_for(config, n);
+  report(impl->name, "linearity", ok, worst, ok ? NULL : "FFT(2a+3b) mismatch");
+  free(a); free(b); free(s); free(fs);
+}
+
+static void test_parsevals(fft_implementation_t *impl, int n,
+                           test_config_t *config) {
+  complex_t *signal = malloc((size_t)n * sizeof(complex_t));
+  fill_random(signal, n, 6000u + (unsigned)n);
+
+  double time_energy = 0.0;
+  for (int i = 0; i < n; i++) time_energy += cabs(signal[i]) * cabs(signal[i]);
+
+  impl->fft_func(signal, n, FFT_FORWARD);
+  double freq_energy = 0.0;
+  for (int i = 0; i < n; i++) freq_energy += cabs(signal[i]) * cabs(signal[i]);
+  freq_energy /= n;
+
+  double rel = fabs(time_energy - freq_energy) / time_energy;
+  /* Energy is a sum of magnitudes, so it tolerates no ordering error either. */
+  int ok = rel <= tol_for(config, n);
+  report(impl->name, "parseval theorem", ok, rel, ok ? NULL : "energy mismatch");
+  free(signal);
+}
+
+static void test_inverse_roundtrip(fft_implementation_t *impl, int n,
+                                   test_config_t *config) {
+  complex_t *original = malloc((size_t)n * sizeof(complex_t));
+  complex_t *work = malloc((size_t)n * sizeof(complex_t));
+  fill_random(original, n, 7000u + (unsigned)n);
+  memcpy(work, original, (size_t)n * sizeof(complex_t));
+
+  impl->fft_func(work, n, FFT_FORWARD);
+  impl->fft_func(work, n, FFT_INVERSE);
+
+  double worst = 0.0;
+  for (int i = 0; i < n; i++) {
+    double e = rel_err(work[i], original[i]);
+    if (e > worst) worst = e;
+  }
+  double tol = tol_for(config, n);
+  int ok = worst <= tol;
+  report(impl->name, "inverse roundtrip", ok, worst,
+         ok ? NULL : "x != IFFT(FFT(x))");
+  free(original); free(work);
+}
+
+static void test_known_pair(fft_implementation_t *impl, int n,
+                            test_config_t *config) {
+  if (n < 4) return; /* cos at bin 1 needs at least 4 points to be distinct */
+  complex_t *signal = malloc((size_t)n * sizeof(complex_t));
+  int freq = 1;
+  for (int i = 0; i < n; i++) signal[i] = cos(2 * PI * freq * i / n);
+  impl->fft_func(signal, n, FFT_FORWARD);
+
+  double expected = n / 2.0;
+  double worst = 0.0;
+  for (int i = 0; i < n; i++) {
+    double want = (i == freq || i == n - freq) ? expected : 0.0;
+    double e = cabs(signal[i] - want) / expected;
+    if (e > worst) worst = e;
+  }
+  /* Property-only check; the reference test is what pins the bin indices. */
+  int ok = worst <= tol_for(config, n);
+  report(impl->name, "known pair cos", ok, worst,
+         ok ? NULL : "energy in wrong bins");
+  free(signal);
+}
+
+static void test_stability(fft_implementation_t *impl, int n,
+                           test_config_t *config) {
+  if (n > 1024) return; /* repeated round trips are costly for O(n^2) paths */
+  complex_t *signal = malloc((size_t)n * sizeof(complex_t));
+  complex_t *expect = malloc((size_t)n * sizeof(complex_t));
+  fill_random(expect, n, 8000u + (unsigned)n);
+
+  /* Wide dynamic range: 1e-5 .. 1e5. expect[] holds the same scaling so the
+   * comparison is like-for-like rather than against unscaled values. */
+  for (int i = 0; i < n; i++) {
+    double scale = pow(10, -5 + 10.0 * i / n);
+    expect[i] *= scale;
+    signal[i] = expect[i];
+  }
+
+  for (int iter = 0; iter < 10; iter++) {
     impl->fft_func(signal, n, FFT_FORWARD);
-    
-    // Check: all values should have magnitude 1
-    result.max_error = 0;
-    for (int i = 0; i < n; i++) {
-        double mag = cabs(signal[i]);
-        double error = fabs(mag - 1.0);
-        if (error > result.max_error) result.max_error = error;
-        
-        if (error > config->tolerance) {
-            result.passed = 0;
-            snprintf(result.error_message, sizeof(result.error_message),
-                    "Impulse FFT[%d] magnitude = %.6f, expected 1.0", i, mag);
-            break;
-        }
-    }
-    
-    free_complex_array(signal);
-    return result;
+    impl->fft_func(signal, n, FFT_INVERSE);
+  }
+
+  double worst = 0.0;
+  for (int i = 0; i < n; i++) worst = fmax(worst, rel_err(signal[i], expect[i]));
+  /* Ten round trips multiply the round-off, hence the looser bound than the
+   * single-pass reference test uses. */
+  double tol = fmax(1e-6, tol_for(config, n) * 10.0);
+  int ok = worst <= tol;
+  report(impl->name, "10x roundtrip stability", ok, worst,
+         ok ? NULL : "error accumulates across round trips");
+  free(signal); free(expect);
 }
 
-// Test 2: DC signal
-test_result_t test_dc_signal(fft_implementation_t* impl, int n, test_config_t* config) {
-    test_result_t result = {
-        .test_name = "DC Signal",
-        .impl_name = impl->name,
-        .passed = 1
-    };
-    
-    complex_t* signal = allocate_complex_array(n);
-    
-    // Create DC signal
+/* ---------- tests that are not per-implementation ---------- */
+
+static void test_bit_reverse_network(void) {
+  printf("\n=== bit_reverse() permutation network ===\n");
+  for (int lg = 1; lg <= 16; lg++) {
+    int n = 1 << lg, bad = 0;
+    unsigned ex_i = 0, ex_got = 0, ex_want = 0;
     for (int i = 0; i < n; i++) {
-        signal[i] = 1.0;
+      unsigned x = (unsigned)i, want = 0;
+      for (int b = 0; b < lg; b++) {
+        want = (want << 1) | (x & 1u);
+        x >>= 1;
+      }
+      unsigned got = bit_reverse((unsigned)i, lg);
+      if (got != want) {
+        if (!bad) { ex_i = (unsigned)i; ex_got = got; ex_want = want; }
+        bad++;
+      }
     }
-    
-    // Apply FFT
-    impl->fft_func(signal, n, FFT_FORWARD);
-    
-    // Check: DC bin should be n, others should be 0
-    result.max_error = 0;
-    
-    // Check DC bin
-    double dc_error = cabs(signal[0] - n);
-    if (dc_error > config->tolerance) {
-        result.passed = 0;
-        snprintf(result.error_message, sizeof(result.error_message),
-                "DC bin = %.6f + %.6fi, expected %d", 
-                creal(signal[0]), cimag(signal[0]), n);
-    }
-    
-    // Check other bins
-    for (int i = 1; i < n; i++) {
-        double error = cabs(signal[i]);
-        if (error > result.max_error) result.max_error = error;
-        
-        if (error > config->tolerance) {
-            result.passed = 0;
-            snprintf(result.error_message, sizeof(result.error_message),
-                    "Non-DC bin[%d] = %.6f + %.6fi, expected 0", 
-                    i, creal(signal[i]), cimag(signal[i]));
-            break;
-        }
-    }
-    
-    free_complex_array(signal);
-    return result;
+    char detail[128];
+    snprintf(detail, sizeof(detail), "%d/%d wrong, e.g. bit_reverse(%u,%d)=%u want %u",
+             bad, n, ex_i, lg, ex_got, ex_want);
+    report("bit_reverse", detail, bad == 0, bad ? 1.0 : 0.0,
+           bad ? "index permutation broken" : NULL);
+  }
 }
 
-// Test 3: Linearity
-test_result_t test_linearity(fft_implementation_t* impl, int n, test_config_t* config) {
-    test_result_t result = {
-        .test_name = "Linearity",
-        .impl_name = impl->name,
-        .passed = 1
-    };
-    
-    complex_t* a = allocate_complex_array(n);
-    complex_t* b = allocate_complex_array(n);
-    complex_t* sum = allocate_complex_array(n);
-    complex_t* fft_sum = allocate_complex_array(n);
-    
-    // Generate random signals
-    for (int i = 0; i < n; i++) {
-        a[i] = ((double)rand() / RAND_MAX - 0.5) + I * ((double)rand() / RAND_MAX - 0.5);
-        b[i] = ((double)rand() / RAND_MAX - 0.5) + I * ((double)rand() / RAND_MAX - 0.5);
-        sum[i] = 2 * a[i] + 3 * b[i];
-    }
-    
-    // FFT of sum
-    memcpy(fft_sum, sum, n * sizeof(complex_t));
-    impl->fft_func(fft_sum, n, FFT_FORWARD);
-    
-    // FFT of components
-    impl->fft_func(a, n, FFT_FORWARD);
-    impl->fft_func(b, n, FFT_FORWARD);
-    
-    // Check linearity: FFT(2a + 3b) = 2*FFT(a) + 3*FFT(b)
-    result.max_error = 0;
-    for (int i = 0; i < n; i++) {
-        complex_t expected = 2 * a[i] + 3 * b[i];
-        double error = cabs(fft_sum[i] - expected);
-        if (error > result.max_error) result.max_error = error;
-        
-        if (error > config->tolerance) {
-            result.passed = 0;
-            snprintf(result.error_message, sizeof(result.error_message),
-                    "Linearity failed at bin %d: error = %.2e", i, error);
-            break;
-        }
-    }
-    
-    free_complex_array(a);
-    free_complex_array(b);
-    free_complex_array(sum);
-    free_complex_array(fft_sum);
-    
-    return result;
+/*
+ * log2_int() used to spin forever on negative input: an arithmetic right
+ * shift of a negative value never becomes zero. A hang here shows up as this
+ * process being killed by the harness timeout, which is the point.
+ */
+static void test_index_helpers(void) {
+  printf("\n=== index/size helpers ===\n");
+  struct { int in; int want; } lg[] = {
+      {-7, 0}, {-1, 0}, {0, 0}, {1, 0}, {2, 1}, {3, 1}, {4, 2},
+      {1024, 10}, {1 << 20, 20}};
+  for (unsigned q = 0; q < sizeof(lg) / sizeof(lg[0]); q++) {
+    int got = log2_int(lg[q].in);
+    char d[96];
+    snprintf(d, sizeof(d), "log2_int(%d)=%d want %d", lg[q].in, got, lg[q].want);
+    report("log2_int", d, got == lg[q].want, 0.0, got == lg[q].want ? NULL : d);
+  }
+
+  struct { int in; int want; } np[] = {
+      {-5, 1}, {0, 1}, {1, 1}, {2, 2}, {3, 4}, {5, 8}, {17, 32}, {1024, 1024},
+      {1025, 2048}};
+  for (unsigned q = 0; q < sizeof(np) / sizeof(np[0]); q++) {
+    int got = next_power_of_two(np[q].in);
+    int ok = (got == np[q].want) ||
+             (got > np[q].in - 1 && (got & (got - 1)) == 0 && got >= np[q].in);
+    char d[96];
+    snprintf(d, sizeof(d), "next_power_of_two(%d)=%d want %d", np[q].in, got,
+             np[q].want);
+    report("next_power_of_two", d, ok, 0.0, ok ? NULL : d);
+  }
+
+  /* n <= 0 must not attempt a huge allocation via int -> size_t underflow. */
+  int ok_null = (allocate_complex_array(0) == NULL) &&
+                (allocate_complex_array(-4) == NULL);
+  report("allocator", "n<=0 returns NULL", ok_null, 0.0,
+         ok_null ? NULL : "negative size reached calloc");
 }
 
-// Test 4: Parseval's theorem
-test_result_t test_parsevals_theorem(fft_implementation_t* impl, int n, test_config_t* config) {
-    test_result_t result = {
-        .test_name = "Parseval's Theorem",
-        .impl_name = impl->name,
-        .passed = 1
-    };
-    
-    complex_t* signal = allocate_complex_array(n);
-    complex_t* spectrum = allocate_complex_array(n);
-    
-    // Generate random signal
-    for (int i = 0; i < n; i++) {
-        signal[i] = ((double)rand() / RAND_MAX - 0.5) + I * ((double)rand() / RAND_MAX - 0.5);
-        spectrum[i] = signal[i];
-    }
-    
-    // Compute time domain energy
-    double time_energy = 0;
-    for (int i = 0; i < n; i++) {
-        time_energy += cabs(signal[i]) * cabs(signal[i]);
-    }
-    
-    // Apply FFT
-    impl->fft_func(spectrum, n, FFT_FORWARD);
-    
-    // Compute frequency domain energy
-    double freq_energy = 0;
-    for (int i = 0; i < n; i++) {
-        freq_energy += cabs(spectrum[i]) * cabs(spectrum[i]);
-    }
-    freq_energy /= n;  // Account for FFT scaling
-    
-    // Check Parseval's theorem
-    result.max_error = fabs(time_energy - freq_energy) / time_energy;
-    
-    if (result.max_error > config->tolerance) {
-        result.passed = 0;
-        snprintf(result.error_message, sizeof(result.error_message),
-                "Energy mismatch: time=%.6f, freq=%.6f, error=%.2e",
-                time_energy, freq_energy, result.max_error);
-    }
-    
-    free_complex_array(signal);
-    free_complex_array(spectrum);
-    
-    return result;
+/* A size that is not supported must be reported, never silently ignored. */
+static void test_rejects_invalid_size(void) {
+  printf("\n=== error-code reporting ===\n");
+  complex_t buf[8];
+  for (int i = 0; i < 8; i++) buf[i] = 1.0;
+
+  /*
+   * Before this API change the transforms reported a bad length by calling
+   * exit(), which killed whatever program linked the library. Each one now
+   * returns a code and must leave the caller's buffer untouched.
+   */
+  for (int q = 0; q < num_implementations; q++) {
+    fft_implementation_t *impl = &implementations[q];
+    char scope[64];
+    snprintf(scope, sizeof(scope), "%s errors", impl->name);
+
+    int ok = impl->fft_func(buf, 8, FFT_FORWARD) == FFT_OK;
+
+    /* Every rejection below happens before any write, so the buffer must still
+     * hold the values set above. */
+    for (int i = 0; i < 8; i++) buf[i] = 1.0;
+    ok = ok && impl->fft_func(NULL, 8, FFT_FORWARD) == FFT_ERR_NULL;
+    ok = ok && impl->fft_func(buf, 0, FFT_FORWARD) == FFT_ERR_SIZE;
+    ok = ok && impl->fft_func(buf, -1, FFT_FORWARD) == FFT_ERR_SIZE;
+    if (impl->requires_power_of_2)
+      ok = ok && impl->fft_func(buf, 3, FFT_FORWARD) == FFT_ERR_SIZE;
+
+    for (int i = 0; i < 8; i++)
+      ok = ok && creal(buf[i]) == 1.0 && cimag(buf[i]) == 0.0;
+
+    report(scope, "returns code, not exit()", ok, 0.0, NULL);
+  }
 }
 
-// Test 5: Inverse FFT
-test_result_t test_inverse_fft(fft_implementation_t* impl, int n, test_config_t* config) {
-    test_result_t result = {
-        .test_name = "Inverse FFT",
-        .impl_name = impl->name,
-        .passed = 1
-    };
-    
-    complex_t* original = allocate_complex_array(n);
-    complex_t* transformed = allocate_complex_array(n);
-    
-    // Generate test signal
-    for (int i = 0; i < n; i++) {
-        original[i] = sin(2 * PI * 3 * i / n) + 0.5 * cos(2 * PI * 7 * i / n);
-        transformed[i] = original[i];
-    }
-    
-    // Forward FFT
-    impl->fft_func(transformed, n, FFT_FORWARD);
-    
-    // Inverse FFT
-    impl->fft_func(transformed, n, FFT_INVERSE);
-    
-    // Check reconstruction
-    result.max_error = 0;
-    for (int i = 0; i < n; i++) {
-        double error = cabs(transformed[i] - original[i]);
-        if (error > result.max_error) result.max_error = error;
-        
-        if (error > config->tolerance) {
-            result.passed = 0;
-            snprintf(result.error_message, sizeof(result.error_message),
-                    "Reconstruction error at sample %d: %.2e", i, error);
-            break;
-        }
-    }
-    
-    free_complex_array(original);
-    free_complex_array(transformed);
-    
-    return result;
+/* ---------- test: planning API, wisdom cache, real and 2-D paths ---------- */
+
+static int algorithm_name_is_known(const char *name) {
+  static const char *const known[] = {"Radix-2 DIT", "Radix-2 DIF", "Radix-4",
+                                      "Split-Radix", "Bluestein", "Mixed-Radix",
+                                      "GPU (CUDA)",  "GPU (Metal)"};
+  if (!name) return 0;
+  for (size_t i = 0; i < sizeof(known) / sizeof(known[0]); i++)
+    if (strcmp(name, known[i]) == 0) return 1;
+  return 0;
 }
 
-// Test 6: Known transform pairs
-test_result_t test_known_transforms(fft_implementation_t* impl, int n, test_config_t* config) {
-    test_result_t result = {
-        .test_name = "Known Transforms",
-        .impl_name = impl->name,
-        .passed = 1
-    };
-    
-    complex_t* signal = allocate_complex_array(n);
-    
-    // Test: Single frequency sinusoid
-    int freq = 5;  // Frequency bin
-    if (freq >= n/2) freq = n/4;
-    if (freq == 0) freq = 1;  // Avoid DC test
-    
-    for (int i = 0; i < n; i++) {
-        signal[i] = cos(2 * PI * freq * i / n);
+static void test_plan_api(test_config_t *config) {
+  printf("\n=== planning API and wisdom ===\n");
+  const int n = 256;
+  const double tol = tol_for(config, n);
+
+  complex_t *src = malloc((size_t)n * sizeof(complex_t));
+  complex_t *work = malloc((size_t)n * sizeof(complex_t));
+  if (!src || !work) {
+    report("plan api", "alloc", 0, 0.0, "out of memory");
+    free(src);
+    free(work);
+    return;
+  }
+  fill_random(src, n, 4242u);
+
+  /*
+   * The planning-strength flags used to be the consecutive values 1, 2, 3, 4.
+   * Because they are OR-combined and tested with `flags & FFT_MEASURE`, that
+   * made FFT_EXHAUSTIVE also mean FFT_MEASURE. Every surviving flag must
+   * therefore be a single distinct bit. FFT_PATIENT, FFT_EXHAUSTIVE,
+   * FFT_UNALIGNED and FFT_THREADED are gone from the enum entirely rather than
+   * left as accepted-and-ignored no-ops, and their bit positions stay unused so
+   * exported wisdom does not change meaning.
+   */
+  {
+    static const unsigned planning_flags[] = {
+        FFT_MEASURE,     FFT_WISDOM_ONLY, FFT_REAL_INPUT,
+        FFT_REAL_OUTPUT, FFT_CONSERVE_MEMORY, FFT_PREFER_GPU};
+    const int nf = (int)(sizeof(planning_flags) / sizeof(planning_flags[0]));
+    int single_bit = 1, disjoint = 1;
+    unsigned seen = 0;
+    for (int i = 0; i < nf; i++) {
+      unsigned f = planning_flags[i];
+      if (f == 0 || (f & (f - 1)) != 0) single_bit = 0; /* not one bit */
+      if (seen & f) disjoint = 0;                        /* overlaps another */
+      seen |= f;
     }
-    
-    // Apply FFT
-    impl->fft_func(signal, n, FFT_FORWARD);
-    
-    // Check: Should have peaks at bins freq and n-freq
-    result.max_error = 0;
-    
-    // Check positive frequency bin
-    double expected_mag = n / 2.0;
-    double pos_freq_mag = cabs(signal[freq]);
-    double pos_error = fabs(pos_freq_mag - expected_mag);
-    
-    // Check negative frequency bin (for real cosine, both bins should have same magnitude)
-    double neg_freq_mag = cabs(signal[n - freq]);
-    double neg_error = fabs(neg_freq_mag - expected_mag);
-    
-    result.max_error = fmax(pos_error, neg_error);
-    
-    // Use more reasonable tolerance for single frequency test
-    double tolerance = config->tolerance * expected_mag;
-    if (tolerance < 1e-10) tolerance = 1e-10;
-    
-    if (result.max_error > tolerance) {
-        result.passed = 0;
-        snprintf(result.error_message, sizeof(result.error_message),
-                "Single frequency test failed: freq=%d, mag=%.2f, expected=%.2f",
-                freq, pos_freq_mag, expected_mag);
+    report("plan api", "planning flags are distinct single bits",
+           single_bit && disjoint, 0.0, NULL);
+  }
+
+  /* A null plan and an unusable length report instead of crashing. */
+  report("plan api", "null plan rejected", fft_execute(NULL) == FFT_ERR_NULL &&
+                                             fft_execute_dft(NULL, src, work) ==
+                                                 FFT_ERR_NULL,
+         0.0, NULL);
+  report("plan api", "n<=0 not plannable",
+         fft_plan_dft_1d(0, src, work, -1, FFT_ESTIMATE) == NULL &&
+             fft_plan_dft_1d(-4, src, work, -1, FFT_ESTIMATE) == NULL,
+         0.0, NULL);
+
+  static const struct {
+    unsigned flags;
+    const char *what;
+  } modes[] = {{FFT_ESTIMATE, "heuristic plan"}, {FFT_MEASURE, "measured plan"}};
+
+  char measured_name[64];
+  measured_name[0] = '\0';
+
+  for (size_t m = 0; m < sizeof(modes) / sizeof(modes[0]); m++) {
+    memcpy(work, src, (size_t)n * sizeof(complex_t));
+    fft_plan_t plan = fft_plan_dft_1d(n, work, work, -1, modes[m].flags);
+    if (!plan) {
+      report("plan api", modes[m].what, 0, 0.0, "planning returned NULL");
+      continue;
     }
-    
-    // Check other bins are near zero
-    for (int i = 0; i < n; i++) {
-        if (i != freq && i != n - freq) {
-            double mag = cabs(signal[i]);
-            if (mag > config->tolerance * n) {
-                result.passed = 0;
-                snprintf(result.error_message, sizeof(result.error_message),
-                        "Unexpected energy at bin %d: magnitude=%.2e", i, mag);
-                break;
-            }
-        }
+
+    int ok = fft_execute(plan) == FFT_OK;
+    ok = ok && algorithm_name_is_known(fft_plan_algorithm_name(plan));
+
+    /* The planned transform must agree with the direct DFT just like the
+     * hand-selected kernels do; this is the only end-to-end check of the
+     * dispatch layer. */
+    for (int k = 0; k < n && ok; k += 17)
+      ok = rel_err(work[k], reference_bin(src, n, k, FFT_FORWARD)) < tol;
+
+    if (modes[m].flags == FFT_MEASURE)
+      snprintf(measured_name, sizeof(measured_name), "%s",
+               fft_plan_algorithm_name(plan));
+
+    fft_destroy_plan(plan);
+    report("plan api", modes[m].what, ok, 0.0, NULL);
+  }
+
+  /* Wisdom: the measured choice survives an export/import round trip. */
+  {
+    int ok = measured_name[0] != '\0';
+    char *wis = fft_export_wisdom_to_string();
+    ok = ok && wis != NULL;
+    if (ok) ok = strncmp(wis, "# FFT Wisdom", 12) == 0;
+    if (ok) ok = fft_import_wisdom_from_string(wis) >= 1;
+    free(wis);
+
+    fft_plan_t plan = fft_plan_dft_1d(n, work, work, -1, FFT_MEASURE);
+    if (ok)
+      ok = plan != NULL &&
+           strcmp(fft_plan_algorithm_name(plan), measured_name) == 0;
+    fft_destroy_plan(plan);
+    report("plan api", "wisdom round trip", ok, 0.0, NULL);
+  }
+
+  /*
+   * FFT_WISDOM_ONLY must refuse to plan rather than silently fall back to a
+   * fresh choice -- the point of the flag is that planning may not measure.
+   *
+   * The cold case uses FFT_CONSERVE_MEMORY, which no plan anywhere in this
+   * suite is built with, so its wisdom key is provably absent. Without that the
+   * test would depend on the global cache being empty, which it is not.
+   */
+  {
+    fft_plan_t cold = fft_plan_dft_1d(
+        n, work, work, -1, FFT_CONSERVE_MEMORY | FFT_WISDOM_ONLY);
+    report("plan api", "wisdom-only on a cold cache returns NULL", cold == NULL,
+           0.0, NULL);
+    fft_destroy_plan(cold); /* must tolerate NULL */
+  }
+
+  /*
+   * The warm case is the one that exercises the subtlety: the flag is masked out
+   * of the cache key, so a choice made under FFT_MEASURE is found by a caller
+   * asking for FFT_MEASURE|FFT_WISDOM_ONLY. Keying on the flags verbatim would
+   * make that combination always miss, and the flag would be useless.
+   */
+  {
+    int ok = measured_name[0] != '\0';
+    memcpy(work, src, (size_t)n * sizeof(complex_t));
+    fft_plan_t warm =
+        fft_plan_dft_1d(n, work, work, -1, FFT_MEASURE | FFT_WISDOM_ONLY);
+    if (!warm) {
+      report("plan api", "wisdom-only on a warm cache plans and runs", 0, 0.0,
+             "planning returned NULL");
+    } else {
+      ok = ok && strcmp(fft_plan_algorithm_name(warm), measured_name) == 0;
+      ok = ok && fft_execute(warm) == FFT_OK;
+      for (int k = 0; k < n && ok; k += 17)
+        ok = rel_err(work[k], reference_bin(src, n, k, FFT_FORWARD)) < tol;
+      fft_destroy_plan(warm);
+      report("plan api", "wisdom-only on a warm cache plans and runs", ok, 0.0,
+             NULL);
     }
-    
-    free_complex_array(signal);
-    return result;
+  }
+
+  /* A hostile cache file must not install an algorithm id that execute_1d
+   * would dispatch on, nor a length no buffer could satisfy. */
+  {
+    int imported =
+        fft_import_wisdom_from_string("# FFT Wisdom v3.0.0 (2 entries)\n"
+                                      "-5 0 1\n"
+                                      "256 0 9999\n");
+    report("plan api", "rejects corrupt wisdom", imported == 0, 0.0, NULL);
+  }
+
+  /*
+   * Wisdom is an external input format: fft_import_wisdom_from_string() reads
+   * text that may pair any algorithm with any n. An entry whose algorithm
+   * cannot transform the recorded length must be dropped at the door. Radix-4
+   * (id 2) on a prime length is the concrete case: cached unchecked, it yields a
+   * non-NULL plan whose every execute returns FFT_ERR_SIZE.
+   */
+  {
+    int imported = fft_import_wisdom_from_string(
+        "# FFT Wisdom v3.0.0 (1 entries)\n7 0 2\n");
+    complex_t seven[7], original[7];
+    for (int i = 0; i < 7; i++)
+      seven[i] = original[i] = (double)(i + 1) + I * (double)i;
+
+    fft_plan_t bad = fft_plan_dft_1d(7, seven, seven, -1, FFT_ESTIMATE);
+    int ok = imported == 0 && bad != NULL;
+    if (bad) {
+      ok = ok && strcmp(fft_plan_algorithm_name(bad), "Bluestein") == 0;
+      ok = ok && fft_execute(bad) == FFT_OK;
+    }
+    for (int k = 0; k < 7 && ok; k++)
+      ok = rel_err(seven[k], reference_bin(original, 7, k, FFT_FORWARD)) <
+           tol_for(config, 7);
+    fft_destroy_plan(bad);
+    report("plan api", "unexecutable wisdom pairing rejected", ok, 0.0, NULL);
+  }
+
+  /*
+   * A GPU id is well-formed and portable -- another machine may have a GPU --
+   * so import accepts it. It must not be returned here, where detect_hardware()
+   * found none: fft_execute()'s GPU case is compiled out in this build and
+   * would report FFT_OK without touching the buffer.
+   */
+  {
+    int imported = fft_import_wisdom_from_string(
+        "# FFT Wisdom v3.0.0 (1 entries)\n16 0 6\n");
+    unsigned caps = fft_get_hardware_capabilities();
+    int has_gpu = (caps & (FFT_HW_GPU_CUDA | FFT_HW_GPU_MPS)) != 0;
+
+    complex_t gpu_buf[16];
+    for (int i = 0; i < 16; i++) gpu_buf[i] = 100.0 + (double)i;
+    fft_plan_t gpu = fft_plan_dft_1d(16, gpu_buf, gpu_buf, -1, FFT_WISDOM_ONLY);
+
+    int ok = imported == 1;
+    if (has_gpu)
+      ok = ok && gpu != NULL && fft_execute(gpu) == FFT_OK;
+    else
+      ok = ok && gpu == NULL; /* unavailable entry must be a cache miss */
+    fft_destroy_plan(gpu);
+    report("plan api", "unavailable GPU wisdom not executed", ok, 0.0, NULL);
+  }
+
+  /*
+   * FFT_CONSERVE_MEMORY is a constraint. Radix-4 is faster at 512 and up but
+   * allocates an O(n) digit-reversal buffer; radix-2 DIT is in place. The flag
+   * must pick radix-2 for power-of-two sizes, and FFT_MEASURE must not override
+   * it back to the allocating kernel.
+   */
+  {
+    const int cn = 512;
+    complex_t *csrc = malloc((size_t)cn * sizeof(complex_t));
+    complex_t *cwork = malloc((size_t)cn * sizeof(complex_t));
+    if (!csrc || !cwork) {
+      report("plan api", "conserve-memory alloc", 0, 0.0, "out of memory");
+    } else {
+      static const char *const inplace[] = {"Radix-2 DIT", "Radix-2 DIF"};
+      const double ctol = tol_for(config, cn);
+      fill_random(csrc, cn, 99u);
+      int ok = 1;
+
+      /* The GPU test above left an entry in the cache. */
+      fft_import_wisdom_from_string("# FFT Wisdom v3.0.0 (0 entries)\n");
+      for (int mode = 0; mode < 2; mode++) {
+        unsigned f = FFT_CONSERVE_MEMORY;
+        if (mode == 1) f |= FFT_MEASURE;
+        memcpy(cwork, csrc, (size_t)cn * sizeof(complex_t));
+        fft_plan_t cplan = fft_plan_dft_1d(cn, cwork, cwork, -1, f);
+        int inplace_choice = 0;
+        if (cplan)
+          for (size_t i = 0; i < sizeof(inplace) / sizeof(inplace[0]); i++)
+            inplace_choice |=
+                strcmp(fft_plan_algorithm_name(cplan), inplace[i]) == 0;
+        ok = ok && cplan != NULL && inplace_choice;
+        ok = ok && fft_execute(cplan) == FFT_OK;
+        for (int k = 0; k < cn && ok; k += 37)
+          ok = rel_err(cwork[k], reference_bin(csrc, cn, k, FFT_FORWARD)) < ctol;
+        fft_destroy_plan(cplan);
+      }
+      report("plan api", "conserve-memory picks in-place kernel", ok, 0.0, NULL);
+    }
+    free(csrc);
+    free(cwork);
+  }
+
+  /* Real-to-complex then complex-to-real on a constant signal: the spectrum is
+   * one non-zero bin and the round trip returns the input. */
+  {
+    const int rn = 64;
+    double *rin = malloc((size_t)rn * sizeof(double));
+    double *rout = malloc((size_t)rn * sizeof(double));
+    complex_t *cout = malloc((size_t)(rn / 2 + 1) * sizeof(complex_t));
+    if (!rin || !rout || !cout) {
+      report("plan api", "r2c alloc", 0, 0.0, "out of memory");
+    } else {
+      for (int i = 0; i < rn; i++) rin[i] = 1.0;
+      int ok = 1;
+
+      fft_plan_t p = fft_plan_r2c_1d(rn, rin, cout, FFT_ESTIMATE);
+      ok = ok && p != NULL && fft_execute(p) == FFT_OK;
+      fft_destroy_plan(p);
+
+      ok = ok && rel_err(cout[0], (double)rn) < 1e-12;
+      ok = ok && cabs(cout[3]) < 1e-12;
+
+      /* in[] carries the n/2+1 bins; c2r mirrors the rest. */
+      for (int k = 1; k <= rn / 2; k++) cout[k] = 0.0;
+      p = fft_plan_c2r_1d(rn, cout, rout, FFT_ESTIMATE);
+      ok = ok && p != NULL && fft_execute(p) == FFT_OK;
+      fft_destroy_plan(p);
+
+      for (int i = 0; i < rn && ok; i++)
+        ok = fabs(rout[i] - 1.0) < 1e-12;
+
+      report("plan api", "r2c / c2r round trip", ok, 0.0, NULL);
+    }
+    free(rin);
+    free(rout);
+    free(cout);
+  }
+
+  /* 2-D on a grid whose rows and columns are both powers of two. */
+  {
+    const int side = 8;
+    const int total = side * side;
+    complex_t *gin = malloc((size_t)total * sizeof(complex_t));
+    complex_t *gout = malloc((size_t)total * sizeof(complex_t));
+    if (!gin || !gout) {
+      report("plan api", "2d alloc", 0, 0.0, "out of memory");
+    } else {
+      fill_random(gin, total, 777u);
+      memcpy(gout, gin, (size_t)total * sizeof(complex_t));
+
+      fft_plan_t p = fft_plan_dft_2d(side, side, gout, gout, -1, FFT_ESTIMATE);
+      int ok = p != NULL && fft_execute(p) == FFT_OK;
+      /* Row/column decomposition keeps the DC bin equal to the total sum. */
+      complex_t sum = 0.0;
+      for (int i = 0; i < total; i++) sum += gin[i];
+      ok = ok && rel_err(gout[0], sum) < tol_for(config, total);
+      fft_destroy_plan(p);
+
+      report("plan api", "2-D transform", ok, 0.0, NULL);
+    }
+    free(gin);
+    free(gout);
+  }
+
+  free(src);
+  free(work);
 }
 
-// Test 7: Numerical stability
-test_result_t test_numerical_stability(fft_implementation_t* impl, int n, test_config_t* config) {
-    test_result_t result = {
-        .test_name = "Numerical Stability",
-        .impl_name = impl->name,
-        .passed = 1
-    };
-    
-    complex_t* signal = allocate_complex_array(n);
-    complex_t* backup = allocate_complex_array(n);
-    
-    // Generate signal with wide dynamic range
-    for (int i = 0; i < n; i++) {
-        double scale = pow(10, -5 + 10.0 * i / n);  // 10^-5 to 10^5
-        signal[i] = scale * (((double)rand() / RAND_MAX - 0.5) + 
-                           I * ((double)rand() / RAND_MAX - 0.5));
-        backup[i] = signal[i];
-    }
-    
-    // Multiple forward/inverse transforms
-    for (int iter = 0; iter < 10; iter++) {
-        impl->fft_func(signal, n, FFT_FORWARD);
-        impl->fft_func(signal, n, FFT_INVERSE);
-    }
-    
-    // Check accumulated error
-    result.max_error = 0;
-    double relative_error = 0;
-    
-    for (int i = 0; i < n; i++) {
-        double error = cabs(signal[i] - backup[i]);
-        double rel_err = error / (cabs(backup[i]) + 1e-10);
-        
-        if (error > result.max_error) result.max_error = error;
-        if (rel_err > relative_error) relative_error = rel_err;
-    }
-    
-    // Use more reasonable tolerance for numerical stability
-    double stability_tolerance = 1e-6;  // Allow 1 part per million error accumulation
-    
-    if (relative_error > stability_tolerance) {
-        result.passed = 0;
-        snprintf(result.error_message, sizeof(result.error_message),
-                "Numerical instability: relative error = %.2e after 10 iterations",
-                relative_error);
-    }
-    
-    free_complex_array(signal);
-    free_complex_array(backup);
-    
-    return result;
+/* ---------- driver ---------- */
+
+static int size_supported(fft_implementation_t *impl, int n) {
+  if (n > impl->max_size) return 0;
+  if (impl->requires_power_of_2 && !is_power_of_two(n)) return 0;
+  return 1;
 }
 
-// Run all tests for one implementation
-void run_implementation_tests(fft_implementation_t* impl, test_config_t* config) {
-    printf("\n=== Testing %s ===\n", impl->name);
-    
-    // Test sizes
-    int test_sizes[] = {2, 4, 8, 16, 32, 64, 128, 256, 512, 1024};
-    int num_sizes = sizeof(test_sizes) / sizeof(test_sizes[0]);
-    
-    // Non-power-of-2 sizes for algorithms that support them
-    int composite_sizes[] = {6, 12, 15, 20, 24, 30};
-    int num_composite = sizeof(composite_sizes) / sizeof(composite_sizes[0]);
-    
-    int total_passed = 0;
-    int total_tests = 0;
-    
-    // Run tests for each size
-    for (int s = 0; s < num_sizes; s++) {
-        int n = test_sizes[s];
-        
-        // Skip if implementation doesn't support this size
-        if (impl->requires_power_of_2 && !is_power_of_two(n)) continue;
-        if (impl->requires_power_of_4 && (n & 0xAAAAAAAA) != 0) continue;
-        
-        if (config->verbose) {
-            printf("\nSize %d:\n", n);
-        }
-        
-        // Run each test
-        test_result_t results[] = {
-            test_impulse_response(impl, n, config),
-            test_dc_signal(impl, n, config),
-            test_linearity(impl, n, config),
-            test_parsevals_theorem(impl, n, config),
-            test_inverse_fft(impl, n, config),
-            test_known_transforms(impl, n, config),
-            test_numerical_stability(impl, n, config)
-        };
-        
-        int num_tests = sizeof(results) / sizeof(results[0]);
-        
-        for (int t = 0; t < num_tests; t++) {
-            total_tests++;
-            if (results[t].passed) {
-                total_passed++;
-                if (config->verbose) {
-                    printf("  ✓ %s (error: %.2e)\n", 
-                           results[t].test_name, results[t].max_error);
-                }
-            } else {
-                printf("  ✗ %s: %s\n", 
-                       results[t].test_name, results[t].error_message);
-                if (config->stop_on_failure) {
-                    return;
-                }
-            }
-        }
-    }
-    
-    // Test composite sizes if supported
-    if (!impl->requires_power_of_2) {
-        printf("\nComposite size tests:\n");
-        
-        for (int s = 0; s < num_composite; s++) {
-            int n = composite_sizes[s];
-            
-            test_result_t result = test_inverse_fft(impl, n, config);
-            total_tests++;
-            
-            if (result.passed) {
-                total_passed++;
-                if (config->verbose) {
-                    printf("  ✓ Size %d inverse FFT\n", n);
-                }
-            } else {
-                printf("  ✗ Size %d: %s\n", n, result.error_message);
-            }
-        }
-    }
-    
-    // Summary
-    printf("\nSummary for %s: %d/%d tests passed (%.1f%%)\n",
-           impl->name, total_passed, total_tests, 
-           100.0 * total_passed / total_tests);
-}
+int main(int argc, char *argv[]) {
+  printf("FFT Implementation Test Suite\n");
+  printf("=============================\n");
 
-// Main test program
-int main(int argc, char* argv[]) {
-    printf("FFT Implementation Test Suite\n");
-    printf("=============================\n");
-    
-    // Test configuration
-    test_config_t config = {
-        .tolerance = 1e-10,
-        .verbose = 0,
-        .stop_on_failure = 0
-    };
-    
-    // Parse command line arguments
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
-            config.verbose = 1;
-        } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--stop") == 0) {
-            config.stop_on_failure = 1;
-        } else if (strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--tolerance") == 0) {
-            if (i + 1 < argc) {
-                config.tolerance = atof(argv[++i]);
-            }
-        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            printf("\nUsage: %s [options]\n", argv[0]);
-            printf("Options:\n");
-            printf("  -v, --verbose     Show detailed test results\n");
-            printf("  -s, --stop        Stop on first failure\n");
-            printf("  -t, --tolerance   Set error tolerance (default: 1e-10)\n");
-            printf("  -h, --help        Show this help message\n");
-            return 0;
-        }
+  test_config_t config;
+  config.tolerance = 1e-10;
+  config.verbose = 0;
+  config.stop_on_failure = 0;
+
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+      config.verbose = 1;
+    } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--stop") == 0) {
+      config.stop_on_failure = 1;
+    } else if (strcmp(argv[i], "-t") == 0 ||
+               strcmp(argv[i], "--tolerance") == 0) {
+      if (i + 1 < argc) config.tolerance = atof(argv[++i]);
+    } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+      printf("Usage: %s [-v] [-s] [-t tolerance]\n", argv[0]);
+      return 0;
     }
-    
-    printf("\nTest configuration:\n");
-    printf("  Tolerance: %.2e\n", config.tolerance);
-    printf("  Verbose: %s\n", config.verbose ? "yes" : "no");
-    printf("  Stop on failure: %s\n", config.stop_on_failure ? "yes" : "no");
-    
-    // Run tests for each implementation
-    for (int i = 0; i < num_implementations; i++) {
-        run_implementation_tests(&implementations[i], &config);
+  }
+
+  printf("\n  tolerance: %.2e (relative)\n", config.tolerance);
+
+  test_bit_reverse_network();
+  test_index_helpers();
+  test_rejects_invalid_size();
+  test_plan_api(&config);
+
+  /* Sizes outer so the O(n^2) reference is computed once per size.
+   * Includes 1, primes, 2*4^k (which only a true mixed-radix-4 handles),
+   * non-power-of-two composites, and sizes above 1024. */
+  static const int sizes[] = {1,    2,    3,    4,    5,    6,    7,    8,
+                              12,   15,   16,   20,   24,   30,   31,   32,
+                              60,   64,   97,   128,  251,  256,  360,  512,
+                              1000, 1021, 1024, 2048, 4096, 16384};
+  const int num_sizes = (int)(sizeof(sizes) / sizeof(sizes[0]));
+
+  for (int s = 0; s < num_sizes; s++) {
+    int n = sizes[s];
+    if (config.verbose) printf("\n--- n=%d ---\n", n);
+
+    for (int q = 0; q < num_implementations; q++) {
+      fft_implementation_t *impl = &implementations[q];
+      if (!size_supported(impl, n)) continue;
+
+      char scope[64];
+      snprintf(scope, sizeof(scope), "%s n=%d", impl->name, n);
+      (void)scope;
+
+      test_reference_agreement(impl, n, &config);
+      test_impulse_response(impl, n, &config);
+      test_dc_signal(impl, n, &config);
+      test_linearity(impl, n, &config);
+      test_parsevals(impl, n, &config);
+      test_inverse_roundtrip(impl, n, &config);
+      test_known_pair(impl, n, &config);
+      test_stability(impl, n, &config);
+
+      if (config.stop_on_failure && g_failures > 0) {
+        printf("\nStopping on first failure.\n");
+        return 1;
+      }
     }
-    
-    // Overall summary
-    printf("\n\n=== Overall Summary ===\n");
-    printf("Tested %d implementations\n", num_implementations);
-    printf("All tests completed successfully!\n");
-    
+  }
+
+  printf("\n=== Overall Summary ===\n");
+  printf("%d/%d checks passed (%.1f%%)\n", g_total_passed, g_total_tests,
+         g_total_tests ? 100.0 * g_total_passed / g_total_tests : 0.0);
+  if (g_failures == 0) {
+    printf("ALL CHECKS PASSED\n");
     return 0;
+  }
+  printf("%d CHECKS FAILED\n", g_failures);
+  return 1;
 }

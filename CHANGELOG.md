@@ -7,18 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Repository automation and security metadata**:
-  `.github/dependabot.yml` (GitHub Actions weekly, docs pip dependencies
-  monthly), `.github/pull_request_template.md`, bug and feature issue forms,
-  and `SECURITY.md` with private reporting guidance and an explicit scope. CI
-  now builds the MkDocs site in strict mode and runs C jobs on `release/**`
-  pushes as well as `main`.
-
-### Changed
-- **`.gitignore`** now covers MkDocs output (`site/`, `docs/site/`), in-source
-  CMake artifacts, Python caches and coverage files, local `.env` files, OS
-  metadata, and crash dumps.
 
 ## [3.0.0] - 2026-10-23
 
@@ -28,6 +16,16 @@ MinGW-w64 GCC 13.2.0: **1361/1361 checks**, no compiler warnings, and
 **52 passed / 0 failed / 2 skipped** benchmark rows in 17.1 s.
 
 ### Fixed
+- **Linux links failed without `libm`.** The CMake library target never linked
+  `m`, so `test_all`, the benchmarks and the examples failed with undefined
+  references to `cexp`, `cabs` and `sincos` on both Linux lanes. MinGW and
+  macOS resolve those from the C runtime, which is why the local Windows
+  verification missed it. `fft_lib_c` now propagates `libm` to its consumers on
+  Unix.
+- **Clang's warning-free gate rejected an unused demonstration helper.**
+  `radix4_butterfly_demo()` is called only by the guarded demonstration
+  `main()`; it is now compiled only into that demo, so the library build is
+  clean under `-Wunused-function`.
 - **GitHub issue #3**: build conflicts and documentation inconsistencies
   resolved, including the stale radix-4 description that claimed it used
   radix-2 butterflies for every stage.
@@ -247,6 +245,12 @@ MinGW-w64 GCC 13.2.0: **1361/1361 checks**, no compiler warnings, and
   evidence that the retuned threshold is right rather than merely re-fitted.
 
 ### Added
+- **Repository automation and security metadata**:
+  `.github/dependabot.yml` (GitHub Actions weekly, docs pip dependencies
+  monthly), `.github/pull_request_template.md`, bug and feature issue forms,
+  and `SECURITY.md` with private reporting guidance and an explicit scope. CI
+  now builds the MkDocs site in strict mode and runs C jobs on `release/**`
+  pushes as well as `main`.
 - **Real-to-Complex FFT** (`fft_plan_r2c_1d`): real input is promoted at execute
   time and produces `n/2+1` Hermitian-symmetric complex bins.
 - **Complex-to-Real FFT** (`fft_plan_c2r_1d`): the inverse counterpart, which
@@ -313,6 +317,9 @@ MinGW-w64 GCC 13.2.0: **1361/1361 checks**, no compiler warnings, and
   up from 1340.
 
 ### Changed
+- **`.gitignore`** now covers MkDocs output (`site/`, `docs/site/`), in-source
+  CMake artifacts, Python caches and coverage files, local `.env` files, OS
+  metadata, and crash dumps.
 - **License**: moved from MIT to Apache License 2.0 for patent protection.
 - **`fft_execute` refactor**: an `execute_1d()` helper now backs the 1-D, r2c,
   c2r and 2-D paths, with the 2-D path transposing between row and column

@@ -291,6 +291,10 @@ for the full measurement method.
 The skipped benchmark rows are the two implementations that cannot run at the
 largest size in that harness; they are counted, not silently dropped.
 
+CI on the release branch passed all four lanes: Linux GCC, Linux Clang,
+Windows MinGW-w64 and the strict MkDocs build. The Linux GCC suite was also run
+directly under WSL Ubuntu 22.04 and reported 1361/1361 checks.
+
 ### Relative cost, all 8 kernels
 
 Each cell is that kernel's time divided by **radix-2 DIT at the same n**, so

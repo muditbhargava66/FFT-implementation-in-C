@@ -43,6 +43,9 @@
  * @param a,b,c,d Pointers to the four complex values
  * @param w1,w2,w3 Twiddle factors W^k, W^2k, W^3k
  */
+#ifndef LIB_BUILD
+/* Only the demonstration main() calls this; compiling it into the library
+ * leaves an unused static function behind, which is a Clang warning. */
 static inline void radix4_butterfly_demo(complex_t* a, complex_t* b, complex_t* c, complex_t* d,
                                          complex_t w1, complex_t w2, complex_t w3) {
     /* Store original values */
@@ -60,6 +63,7 @@ static inline void radix4_butterfly_demo(complex_t* a, complex_t* b, complex_t* 
     *c = (t0 - t2) * w2;            /* Apply W^2k */
     *d = (t1 - t3) * w3;            /* Apply W^3k */
 }
+#endif /* LIB_BUILD */
 
 /**
  * @brief Main Radix-4 FFT implementation

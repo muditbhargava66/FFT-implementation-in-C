@@ -293,7 +293,9 @@ largest size in that harness; they are counted, not silently dropped.
 
 CI on the release branch passed all four lanes: Linux GCC, Linux Clang,
 Windows MinGW-w64 and the strict MkDocs build. The Linux GCC suite was also run
-directly under WSL Ubuntu 22.04 and reported 1361/1361 checks.
+directly under WSL Ubuntu 22.04 and reported 1361/1361 checks. A strict C99
+build with GCC 15.3 in a container — the toolchain generation from issue #4 —
+also passed 1361/1361 with implicit function declarations promoted to errors.
 
 ### Relative cost, all 8 kernels
 

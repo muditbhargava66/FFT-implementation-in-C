@@ -8,7 +8,7 @@ This guide provides an overview of all FFT algorithms implemented in this projec
 |-----------|------------|------------------|---------------|
 | Radix-2 DIT | O(N log N) | Power of 2 | General purpose, industry standard |
 | Radix-2 DIF | O(N log N) | Power of 2 | Hardware implementations |
-| Radix-4 | O(N log N) | Power of 4 | Reduced operations vs Radix-2 |
+| Radix-4 | O(N log N) | Power of 2 | Reduced operations vs Radix-2 |
 | Split-Radix | O(N log N) | Power of 2 | Minimum operation count |
 | Bluestein | O(N log N) | Any size | Non-power-of-2 sizes |
 | Mixed-Radix | O(N log N) | Composite | Efficient for specific sizes |

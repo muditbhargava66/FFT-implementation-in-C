@@ -134,19 +134,17 @@ checks the result is a valid permutation of `0..n-1` at every size.
 Added comprehensive input validation:
 
 ```c
-void radix4_fft(complex_t* x, int n, fft_direction dir) {
-    if (!x) {
-        fprintf(stderr, "Error: Null pointer passed to radix4_fft\n");
-        return;
-    }
-    
-    if (!is_power_of_two(n)) {
-        fprintf(stderr, "Error: Radix-4 FFT requires size to be power of 2\n");
-        return;
-    }
+fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
+    if (!x) return FFT_ERR_NULL;
+    if (!is_power_of_two(n)) return FFT_ERR_SIZE;
     // ... rest of function
+    return FFT_OK;
 }
 ```
+
+Every transform follows this contract: it returns an `fft_error_t` and leaves
+the caller's buffer untouched when it fails. Nothing in the library terminates
+the host process.
 
 ### Memory Leak Prevention
 

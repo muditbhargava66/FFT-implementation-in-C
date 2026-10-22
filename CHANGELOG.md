@@ -317,6 +317,10 @@ MinGW-w64 GCC 13.2.0: **1361/1361 checks**, no compiler warnings, and
   up from 1340.
 
 ### Changed
+- **Documentation dependencies**: `mkdocs-material` 9.7.7 (which includes a
+  DOM-based XSS fix in search suggestions), `pymdown-extensions` 12.3, and
+  `mkdocstrings-python` 2.0.10. Merged as #9-#11 and verified with the strict
+  MkDocs build.
 - **`.gitignore`** now covers MkDocs output (`site/`, `docs/site/`), in-source
   CMake artifacts, Python caches and coverage files, local `.env` files, OS
   metadata, and crash dumps.

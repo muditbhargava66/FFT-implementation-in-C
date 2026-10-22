@@ -130,6 +130,14 @@ endif()
 add_library(fft_lib_c STATIC ${FFT_C_SOURCES})
 target_compile_definitions(fft_lib_c PRIVATE LIB_BUILD)
 
+# libm is a separate library on Linux. Without this every consumer fails at
+# link time with undefined references to cexp, cabs, sincos and friends; MinGW
+# and macOS resolve them from the C runtime, which is why the Windows build hid
+# the omission. PUBLIC so tests, benchmarks and applications inherit it.
+if(UNIX AND NOT APPLE)
+    target_link_libraries(fft_lib_c PUBLIC m)
+endif()
+
 if(FFT_ENABLE_GPU AND CMAKE_CUDA_COMPILER)
     file(GLOB GPU_CUDA_SOURCES "gpu/*.cu")
 

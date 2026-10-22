@@ -94,32 +94,25 @@ int main() {
 
 ## Building
 
-Each algorithm can be built independently:
+Core algorithms are compiled into a single static library by the top-level
+CMake build; they are not built as separate programs.
 
 ```bash
-make radix2_dit
-make radix4
-# etc...
+cmake -S . -B build
+cmake --build build
 ```
 
-Or build all core algorithms:
+Each file also contains a demonstration `main()` guarded by `#ifndef LIB_BUILD`.
+To run one individually, compile that file directly (without `LIB_BUILD`):
 
 ```bash
-make core
+gcc -O2 -std=c11 -Iinclude algorithms/core/radix4.c utils/fft_utils.c -lm -o radix4
+./radix4
 ```
 
 ## Testing
 
-Run the built-in tests in each file:
-
 ```bash
-./radix2_dit
-./split_radix
-```
-
-Or run the comprehensive test suite:
-
-```bash
-make test
-./bin/test_all
+ctest --test-dir build
+./build/bin/test_all        # exits non-zero if any check fails
 ```

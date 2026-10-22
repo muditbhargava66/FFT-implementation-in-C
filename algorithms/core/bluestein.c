@@ -38,62 +38,54 @@
  */
 
 /**
- * @brief Compute chirp sequence for Bluestein's algorithm
- * 
+ * @brief Compute an FFT of arbitrary length with Bluestein's chirp-z trick
+ *
  * @details
- * The chirp sequence is defined as: exp(-i * π * k² / n) for forward transform
- * or exp(+i * π * k² / n) for inverse transform.
- * 
- * @param n Length of the sequence
+ * Rewrites the n-point DFT as a linear convolution of x[k]·c[k] with c[-k],
+ * where c[k] = exp(dir·j·pi·k²/n), then evaluates that convolution with a
+ * power-of-two FFT of length m >= 2n-1. This is what makes non-power-of-two
+ * and prime lengths available at O(n log n) instead of O(n²).
+ *
+ * @param x Input/output array of length n
+ * @param n Transform length (any positive integer)
  * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
- * @return Pointer to allocated chirp sequence array
+ * @return FFT_OK, FFT_ERR_NULL, FFT_ERR_RANGE, or FFT_ERR_ALLOC
  */
-static complex_t* compute_chirp_sequence(int n, fft_direction dir) {
-    complex_t* chirp = allocate_complex_array(n);
-    if (!chirp) {
-        fprintf(stderr, "Error: Failed to allocate chirp sequence\n");
-        return NULL;
-    }
-    
-    /* Compute exp(-dir * i * π * k² / n) for each k */
-    for (int k = 0; k < n; k++) {
-        double phase = -dir * PI * k * k / n;
-        chirp[k] = cexp(I * phase);
-    }
-    
-    return chirp;
-}
-
-/**
- * @brief Main Bluestein FFT algorithm implementation
- * 
- * @details
- * This function implements the Chirp Z-Transform algorithm to compute the DFT
- * of arbitrary length sequences. It converts the DFT into a convolution problem
- * which can be solved efficiently using FFT.
- * 
- * @param x Input/output array of complex numbers
- * @param n Length of the array (can be any positive integer)
- * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
- */
-void bluestein_fft(complex_t* x, int n, fft_direction dir) {
+fft_error_t bluestein_fft(complex_t* x, int n, fft_direction dir) {
     /* Input validation */
-    if (!x || n <= 0) {
-        fprintf(stderr, "Error: Invalid input to bluestein_fft\n");
-        return;
-    }
-    
+    if (!x) return FFT_ERR_NULL;
+    if (n <= 0) return FFT_ERR_SIZE;
+    /* Guards the 2*n - 1 below: past this, the length would wrap negative and
+     * the m-sized scratch arrays would be smaller than the n-sized loops. */
+    if (n > (1 << 29)) return FFT_ERR_RANGE;
+
     /* Find next power of 2 >= 2n - 1 for circular convolution */
     int m = next_power_of_two(2 * n - 1);
     
     /* Allocate working arrays */
     complex_t* a = allocate_complex_array(m);
     complex_t* b = allocate_complex_array(m);
-    complex_t* chirp = compute_chirp_sequence(n, dir);
     
-    if (!a || !b || !chirp) {
-        fprintf(stderr, "Error: Memory allocation failed in bluestein_fft\n");
-        goto cleanup;
+    /* 
+     * Compute chirp sequence
+     * Standard definition: c[k] = exp(-j * pi * k^2 / N) for Forward
+     * We use 'dir' to control the sign.
+     * If dir == FFT_FORWARD (-1), we want exp(-j...).
+     * So phase = dir * PI * k^2 / N.
+     */
+    complex_t* c = allocate_complex_array(n);
+    
+    if (!a || !b || !c) {
+        free_complex_array(a);
+        free_complex_array(b);
+        free_complex_array(c);
+        return FFT_ERR_ALLOC;
+    }
+    
+    /* Precompute chirp sequence with high precision */
+    for (int k = 0; k < n; k++) {
+        long double phase = (long double)dir * PI * (long double)k * (long double)k / (long double)n;
+        c[k] = cexp(I * (double)phase);
     }
     
     /* Initialize arrays to zero */
@@ -101,57 +93,67 @@ void bluestein_fft(complex_t* x, int n, fft_direction dir) {
     memset(b, 0, m * sizeof(complex_t));
     
     /* 
-     * Step 1: Prepare sequence a[k] = x[k] * conj(chirp[k])
-     * This modulates the input with the conjugate chirp
+     * Step 1: Modulate input
+     * a[k] = x[k] * c[k]
      */
     for (int k = 0; k < n; k++) {
-        a[k] = x[k] * conj(chirp[k]);
+        a[k] = x[k] * c[k];
     }
     
     /* 
-     * Step 2: Prepare convolution kernel b[k]
-     * b[k] = chirp[k] for k in [0, n-1]
-     * b[m-k] = chirp[k] for k in [1, n-1] (wrap around for circular convolution)
+     * Step 2: Prepare convolution kernel
+     * b[k] = conj(c[k])
+     * b[m-k] = conj(c[k])
      */
     for (int k = 0; k < n; k++) {
-        b[k] = chirp[k];
+        complex_t conj_c = conj(c[k]);
+        b[k] = conj_c;
         if (k > 0) {
-            b[m - k] = chirp[k];
+            b[m - k] = conj_c;
         }
     }
     
-    /* Step 3: Compute FFT of both sequences */
+    /*
+     * Step 3: Forward FFT of both sequences. m is a power of two by
+     * construction, so the kernel's size check cannot fire here.
+     *
+     * An earlier version routed m <= 32 through the recursive kernel to dodge
+     * "the problematic M=4,8 cases"; those sizes were wrong because of the
+     * bit_reverse() partial-reversal bug, which is fixed at the source, so the
+     * iterative radix-2 kernel is used at every size.
+     */
     radix2_dit_fft(a, m, FFT_FORWARD);
     radix2_dit_fft(b, m, FFT_FORWARD);
-    
+
     /* Step 4: Pointwise multiplication in frequency domain */
     for (int k = 0; k < m; k++) {
         a[k] *= b[k];
     }
     
-    /* Step 5: Inverse FFT to get convolution result */
+    /* Step 5: Inverse FFT to get convolution result. Its 1/m factor is part of
+     * the convolution theorem, not the 1/n normalisation applied below. */
     radix2_dit_fft(a, m, FFT_INVERSE);
-    
+
     /* 
-     * Step 6: Extract result and demodulate
-     * y[k] = a[k] * conj(chirp[k])
+     * Step 6: Final modulation and scaling
+     * x[k] = a[k] * c[k]
+     * 
+     * Base magnitude is correct (1.0).
+     * For Inverse FFT, we scale by 1/n.
      */
-    for (int k = 0; k < n; k++) {
-        x[k] = a[k] * conj(chirp[k]);
-    }
-    
-    /* Scale for inverse transform */
+    double scale_factor = 1.0;
     if (dir == FFT_INVERSE) {
-        for (int k = 0; k < n; k++) {
-            x[k] /= n;
-        }
+        scale_factor /= n;
     }
-    
-cleanup:
-    /* Free allocated memory */
-    if (a) free_complex_array(a);
-    if (b) free_complex_array(b);
-    if (chirp) free_complex_array(chirp);
+
+    for (int k = 0; k < n; k++) {
+        x[k] = a[k] * c[k] * scale_factor;
+    }
+
+    free_complex_array(a);
+    free_complex_array(b);
+    free_complex_array(c);
+    return FFT_OK;
 }
 
 /**
@@ -159,8 +161,8 @@ cleanup:
  * @param x Input/output array
  * @param n Array length
  */
-void fft_bluestein(complex_t* x, int n) {
-    bluestein_fft(x, n, FFT_FORWARD);
+fft_error_t fft_bluestein(complex_t* x, int n) {
+    return bluestein_fft(x, n, FFT_FORWARD);
 }
 
 /**
@@ -168,8 +170,8 @@ void fft_bluestein(complex_t* x, int n) {
  * @param x Input/output array
  * @param n Array length
  */
-void ifft_bluestein(complex_t* x, int n) {
-    bluestein_fft(x, n, FFT_INVERSE);
+fft_error_t ifft_bluestein(complex_t* x, int n) {
+    return bluestein_fft(x, n, FFT_INVERSE);
 }
 
 #ifndef LIB_BUILD

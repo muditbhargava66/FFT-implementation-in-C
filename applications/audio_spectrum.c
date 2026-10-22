@@ -1,5 +1,5 @@
-#include "../include/fft_common.h"
-#include "../include/fft_algorithms.h"
+#include "fft_common.h"
+#include "fft_algorithms.h"
 #include <stdint.h>
 
 /**
@@ -33,28 +33,8 @@ typedef struct {
     uint32_t data_size;     // Data size
 } wav_header_t;
 
-// Window functions for spectral analysis
-void apply_window_hann(complex_t* signal, int n) {
-    for (int i = 0; i < n; i++) {
-        double window = 0.5 * (1.0 - cos(TWO_PI * i / (n - 1)));
-        signal[i] *= window;
-    }
-}
-
-void apply_window_hamming(complex_t* signal, int n) {
-    for (int i = 0; i < n; i++) {
-        double window = 0.54 - 0.46 * cos(TWO_PI * i / (n - 1));
-        signal[i] *= window;
-    }
-}
-
-void apply_window_blackman(complex_t* signal, int n) {
-    for (int i = 0; i < n; i++) {
-        double window = 0.42 - 0.5 * cos(TWO_PI * i / (n - 1)) 
-                      + 0.08 * cos(4 * PI * i / (n - 1));
-        signal[i] *= window;
-    }
-}
+/* apply_window_* come from utils/window_functions.c and are declared in
+ * fft_common.h; local copies here duplicated the symbols. */
 
 // Generate test audio signal
 void generate_test_audio(complex_t* signal, int n, double sample_rate) {
@@ -84,33 +64,36 @@ typedef struct {
     int bin;
 } peak_t;
 
-void find_peaks(double* magnitude, int n, double sample_rate, 
+void find_peaks(double* magnitude, int n, double sample_rate,
                 peak_t* peaks, int* num_peaks, int max_peaks) {
     *num_peaks = 0;
-    double threshold = 0.1;  // Minimum magnitude threshold
-    
-    for (int i = 1; i < n/2 - 1 && *num_peaks < max_peaks; i++) {
-        // Check if local maximum
-        if (magnitude[i] > magnitude[i-1] && 
-            magnitude[i] > magnitude[i+1] &&
-            magnitude[i] > threshold) {
-            
-            peaks[*num_peaks].bin = i;
-            peaks[*num_peaks].frequency = bin_to_frequency(i, n, sample_rate);
-            peaks[*num_peaks].magnitude = magnitude[i];
-            (*num_peaks)++;
+    if (!magnitude || !peaks || max_peaks <= 0 || n < 4) return;
+    const double threshold = 0.1;  // Minimum magnitude threshold
+
+    for (int i = 1; i < n/2 - 1; i++) {
+        if (!(magnitude[i] > magnitude[i-1] &&
+              magnitude[i] > magnitude[i+1] &&
+              magnitude[i] > threshold))
+            continue;
+
+        /* Keep the strongest peaks across the whole spectrum, not the first
+         * max_peaks local maxima in frequency order. The earlier scan stopped
+         * after ten low-frequency noise peaks in the 4096-point test signal and
+         * never reached its 440 Hz component. */
+        if (*num_peaks == max_peaks &&
+            magnitude[i] <= peaks[*num_peaks - 1].magnitude)
+            continue;
+
+        int count = (*num_peaks < max_peaks) ? *num_peaks + 1 : max_peaks;
+        int pos = count - 1;
+        while (pos > 0 && peaks[pos - 1].magnitude < magnitude[i]) {
+            peaks[pos] = peaks[pos - 1];
+            pos--;
         }
-    }
-    
-    // Sort peaks by magnitude (simple bubble sort)
-    for (int i = 0; i < *num_peaks - 1; i++) {
-        for (int j = 0; j < *num_peaks - i - 1; j++) {
-            if (peaks[j].magnitude < peaks[j+1].magnitude) {
-                peak_t temp = peaks[j];
-                peaks[j] = peaks[j+1];
-                peaks[j+1] = temp;
-            }
-        }
+        peaks[pos].bin = i;
+        peaks[pos].frequency = bin_to_frequency(i, n, sample_rate);
+        peaks[pos].magnitude = magnitude[i];
+        *num_peaks = count;
     }
 }
 
@@ -127,7 +110,9 @@ void display_spectrum_ascii(double* magnitude, int n, double sample_rate) {
     
     printf("\nFrequency Spectrum:\n");
     printf("==================\n");
-    
+
+    if (max_mag <= 0.0) max_mag = 1.0;  /* all-zero input: draw an empty plot */
+
     // Display each frequency bin
     for (int i = 0; i < display_bins; i++) {
         double freq = bin_to_frequency(i, n, sample_rate);
@@ -189,8 +174,11 @@ const char* frequency_to_note(double freq) {
     if (freq <= 0) return "N/A";
     
     double half_steps = 12 * log2(freq / c0);
-    int note_index = ((int)round(half_steps)) % 12;
-    int octave = ((int)round(half_steps)) / 12;
+    int semitones = (int)lround(half_steps);
+    /* C's % keeps the sign of the dividend, so frequencies below C0 produced a
+     * negative index into notes[]. */
+    int note_index = ((semitones % 12) + 12) % 12;
+    int octave = (int)floor((double)semitones / 12.0);
     
     static char note_name[10];
     snprintf(note_name, sizeof(note_name), "%s%d", notes[note_index], octave);
@@ -244,13 +232,19 @@ int main() {
         }
     }
     
+    /* analyze_audio_spectrum() transforms its argument in place, so keep the
+     * time-domain chord for the note-detection pass below. Transforming the
+     * spectrum again produced peaks around 6.8 kHz that were not in the signal. */
+    complex_t* chord_copy = allocate_complex_array(fft_size);
+    memcpy(chord_copy, signal, (size_t)fft_size * sizeof(complex_t));
+
     printf("C Major Chord (C4, E4, G4):\n");
     analyze_audio_spectrum(signal, fft_size, sample_rate, "blackman");
     
     // Show note detection
     printf("\nNote Detection:\n");
-    radix2_dit_fft(signal, fft_size, FFT_FORWARD);
-    double* magnitude = compute_magnitude(signal, fft_size);
+    radix2_dit_fft(chord_copy, fft_size, FFT_FORWARD);
+    double* magnitude = compute_magnitude(chord_copy, fft_size);
     
     peak_t peaks[10];
     int num_peaks;
@@ -260,6 +254,9 @@ int main() {
         printf("Peak %d: %.1f Hz = %s\n", 
                i+1, peaks[i].frequency, frequency_to_note(peaks[i].frequency));
     }
+
+    free(magnitude);
+    free_complex_array(chord_copy);
     
     // Test 3: Frequency resolution
     printf("\n\nTest 3: Frequency Resolution\n");
@@ -282,7 +279,6 @@ int main() {
     printf("5. Consider real-FFT for real-valued audio\n");
     
     free_complex_array(signal);
-    free(magnitude);
     
     return 0;
 }

@@ -1,0 +1,59 @@
+name: Feature request
+description: Propose an algorithm, API, application, or tooling improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project distinguishes between kernels the planner can select and
+        reachable, tested features. An algorithm that nothing calls is not done;
+        please describe how it would be selected and verified.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today, or what is unnecessarily slow?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API shape, algorithm, expected complexity, and memory cost.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing kernels, vendor libraries, or a smaller change.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core algorithm
+        - Planner / wisdom cache
+        - Real-valued or 2-D transform
+        - Application example
+        - Build / CI / documentation
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: How would this be verified?
+      description: Reference comparison, test sizes, benchmark method, or docs.
+      placeholder: Compared against the independent direct DFT at n=...
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions.
+          required: true
+        - label: This is not a security report (see SECURITY.md).
+          required: true

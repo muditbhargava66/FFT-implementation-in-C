@@ -1,5 +1,5 @@
-#include "../include/fft_common.h"
-#include "../include/fft_algorithms.h"
+#include "fft_common.h"
+#include "fft_algorithms.h"
 #include <string.h>
 
 /**
@@ -59,16 +59,11 @@ void fft_2d(complex_t** data, int rows, int cols, fft_direction dir) {
         }
     }
     free_complex_array(column);
-    
-    // Scale for inverse transform
-    if (dir == FFT_INVERSE) {
-        double scale = 1.0 / (rows * cols);
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                data[i][j] *= scale;
-            }
-        }
-    }
+
+    /* No extra normalisation here. Each 1-D inverse already divides by its
+     * length, so the row pass contributes 1/cols and the column pass 1/rows;
+     * together they supply the 2-D factor 1/(rows*cols). An additional scaling
+     * step made every reconstruction 1/(rows*cols) too small. */
 }
 
 // Shift zero frequency to center (fftshift)
@@ -279,6 +274,39 @@ void demo_2d_fft_properties() {
     free_2d_complex(spectrum, rows);
 }
 
+/* Time one 2-D forward transform of `size`, batching until clock() can resolve
+ * the interval. clock() advances about once a millisecond on Windows, so a
+ * single small transform measures 0.000 ms and the derived pixels/ms figure
+ * divides by zero. `seed` is copied in before each repetition so the timed work
+ * sees finite data; the O(n^2) copy is small against the O(n^2 log n) transform,
+ * and the library's own FFT_MEASURE sweep pays the same cost. */
+static double time_fft_2d(int size, complex_t** seed) {
+    complex_t** work = allocate_2d_complex(size, size);
+    if (!work) return -1.0;
+
+    int reps = 1;
+    double per_call = 0.0;
+    fft_timer_t timer;
+
+    for (;;) {
+        timer_start(&timer);
+        for (int r = 0; r < reps; r++) {
+            for (int i = 0; i < size; i++) {
+                memcpy(work[i], seed[i], (size_t)size * sizeof(complex_t));
+            }
+            fft_2d(work, size, size, FFT_FORWARD);
+        }
+        timer_stop(&timer);
+
+        per_call = timer.elapsed_ms / reps;
+        if (timer.elapsed_ms >= 10.0 || reps >= 4096) break;
+        reps *= 4;
+    }
+
+    free_2d_complex(work, size);
+    return per_call;
+}
+
 // Main program
 int main() {
     printf("2D FFT for Image Processing\n");
@@ -300,12 +328,8 @@ int main() {
         memcpy(spectrum[i], test_image[i], cols * sizeof(complex_t));
     }
     
-    fft_timer_t timer;
-    timer_start(&timer);
     fft_2d(spectrum, rows, cols, FFT_FORWARD);
-    timer_stop(&timer);
-    
-    printf("2D FFT (%dx%d) completed in %.3f ms\n", rows, cols, timer.elapsed_ms);
+    printf("2D FFT (%dx%d) complete\n", rows, cols);
     
     // Check for peaks at expected frequencies
     fft_shift_2d(spectrum, rows, cols);
@@ -379,24 +403,20 @@ int main() {
     int test_sizes[] = {32, 64, 128, 256};
     for (int s = 0; s < 4; s++) {
         int size = test_sizes[s];
-        complex_t** test = allocate_2d_complex(size, size);
+        complex_t** seed = allocate_2d_complex(size, size);
         
         // Fill with random data
         for (int i = 0; i < size; i++) {
             for (int j = 0; j < size; j++) {
-                test[i][j] = (double)rand() / RAND_MAX;
+                seed[i][j] = (double)rand() / RAND_MAX;
             }
         }
         
-        timer_start(&timer);
-        fft_2d(test, size, size, FFT_FORWARD);
-        timer_stop(&timer);
+        double per_call = time_fft_2d(size, seed);
+        printf("%dx%d\t\t%.4f\t\t%.0f\n", size, size, per_call,
+               per_call > 0.0 ? (size * size) / per_call : 0.0);
         
-        printf("%dx%d\t\t%.3f\t\t%.0f\n", 
-               size, size, timer.elapsed_ms, 
-               (size * size) / timer.elapsed_ms);
-        
-        free_2d_complex(test, size);
+        free_2d_complex(seed, size);
     }
     
     // Applications

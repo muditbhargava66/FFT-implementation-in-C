@@ -1,5 +1,5 @@
-#include "../include/fft_common.h"
-#include "../include/fft_algorithms.h"
+#include "fft_common.h"
+#include "fft_algorithms.h"
 
 /**
  * FFT-based Filtering
@@ -282,24 +282,28 @@ int main() {
     printf("=====================\n");
     
     fft_timer_t timer;
-    
-    // Time-domain FIR filtering
-    timer_start(&timer);
-    // Would implement direct convolution here
-    timer_stop(&timer);
-    double time_fir = timer.elapsed_ms;
-    
-    // FFT-based filtering
-    timer_start(&timer);
-    fft_filter(signal, signal_length, &params);
-    timer_stop(&timer);
-    double time_fft = timer.elapsed_ms;
+
+    /* No time-domain FIR path is implemented here, so no FIR figure is printed.
+     * The previous code timed an empty block and reported 0.000 ms as
+     * "estimated", which reads as a measurement but measured nothing. */
+    int reps = 1;
+    double total = 0.0;
+    for (;;) {
+        timer_start(&timer);
+        for (int r = 0; r < reps; r++)
+            fft_filter(signal, signal_length, &params);
+        timer_stop(&timer);
+        total = timer.elapsed_ms;
+        if (total >= 10.0 || reps >= (1 << 16)) break;
+        reps *= 4;
+    }
+    double time_fft = total / reps;
     
     printf("Signal length: %d samples\n", signal_length);
     printf("FIR filter length: %d taps\n", taps);
-    printf("Time-domain FIR filtering: %.3f ms (estimated)\n", time_fir);
-    printf("FFT-based filtering time: %.3f ms\n", time_fft);
-    printf("\nFFT filtering is more efficient for long filters!\n");
+    printf("Time-domain FIR filtering: not benchmarked in this demo\n");
+    printf("FFT-based filtering time: %.4f ms (avg of %d calls)\n", time_fft, reps);
+    printf("\nThe FFT path costs O(n log n); benchmark it against your own FIR implementation.\n");
     
     // Applications
     printf("\n\nPractical Applications:\n");

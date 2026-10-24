@@ -144,7 +144,13 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
     }
     
     // Read data
-    rewind(fp);
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        free_complex_array(*data);
+        *data = NULL;
+        *n = 0;
+        return -1;
+    }
     int idx = 0;
     while (fgets(line, sizeof(line), fp) && idx < *n) {
         if (line[0] != '#') {

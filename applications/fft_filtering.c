@@ -158,10 +158,15 @@ void fft_filter(complex_t* signal, int n, filter_params_t* params) {
 
 // Design FIR filter using frequency sampling method
 complex_t* design_fir_filter(int taps, filter_params_t* params) {
+    if (taps < 2 || !params)
+        return NULL;
+
     int n = next_power_of_two(taps * 4);  // Zero-pad for better frequency resolution
     
     // Generate frequency response
     complex_t* H = allocate_complex_array(n);
+    if (!H)
+        return NULL;
     generate_ideal_response(H, n, params);
     apply_transition_band(H, n, params);
     
@@ -170,6 +175,10 @@ complex_t* design_fir_filter(int taps, filter_params_t* params) {
     
     // Extract and window the impulse response
     complex_t* h = allocate_complex_array(taps);
+    if (!h) {
+        free_complex_array(H);
+        return NULL;
+    }
     int shift = taps / 2;
     
     for (int i = 0; i < taps; i++) {
@@ -296,6 +305,10 @@ int main() {
     
     int taps = 65;
     complex_t* fir_coeff = design_fir_filter(taps, &params);
+    if (!fir_coeff) {
+        fprintf(stderr, "FIR filter design failed\n");
+        return 1;
+    }
     
     printf("FIR filter coefficients (first 10):\n");
     for (int i = 0; i < 10; i++) {

@@ -26,7 +26,13 @@ MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
   allocation failure returned `FFT_ERR_ALLOC` with the output already partly
   transformed; the buffer is now allocated first.
 - `load_complex_array()` in `utils/fft_utils.c` did not check the allocation
-  result and ignored read errors. It now fails cleanly.
+  result and ignored read errors. It now fails cleanly, including when the
+  stream cannot be rewound.
+- The filtering demo's `design_fir_filter()` divides by `taps - 1` when it
+  builds the Hamming window and did not check its allocations. It now rejects
+  fewer than two taps and fails cleanly. The realtime analyzer also checks its
+  allocations and zero-initializes the spectrum buffers used for peak
+  detection.
 - 2-D plans selected the column-pass algorithm at execute time by consulting
   the global wisdom cache again. Replacing the cache between planning and
   execution could therefore change the plan, and under `FFT_WISDOM_ONLY` could

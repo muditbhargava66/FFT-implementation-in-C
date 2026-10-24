@@ -111,6 +111,12 @@ int save_complex_array(const char* filename, complex_t* data, int n) {
 }
 
 int load_complex_array(const char* filename, complex_t** data, int* n) {
+    if (!filename || !data || !n)
+        return -1;
+
+    *data = NULL;
+    *n = 0;
+
     FILE* fp = fopen(filename, "r");
     if (!fp) {
         fprintf(stderr, "Error: Cannot open file %s for reading\n", filename);
@@ -118,7 +124,6 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
     }
     
     char line[256];
-    *n = 0;
     
     // Read header and determine size
     while (fgets(line, sizeof(line), fp)) {

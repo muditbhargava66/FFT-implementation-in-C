@@ -71,7 +71,8 @@ typedef enum {
     FFT_ERR_NULL = -1,      /* null buffer */
     FFT_ERR_SIZE = -2,      /* length invalid for this algorithm */
     FFT_ERR_ALLOC = -3,     /* allocation failed */
-    FFT_ERR_RANGE = -4      /* argument out of supported range */
+    FFT_ERR_RANGE = -4,     /* argument out of supported range */
+    FFT_ERR_UNSUPPORTED = -5 /* operation not supported by this plan */
 } fft_error_t;
 
 /* Validate a required power-of-two length from inside a function returning

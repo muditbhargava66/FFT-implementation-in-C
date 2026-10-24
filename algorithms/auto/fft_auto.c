@@ -633,7 +633,7 @@ fft_error_t fft_execute_dft(fft_plan_t plan, complex_t *in, complex_t *out) {
    * complex in/out pair to substitute. Reject the call instead of quietly
    * transforming the buffers the plan was created with. */
   if (plan->real_in || plan->real_out)
-    return FFT_ERR_SIZE;
+    return FFT_ERR_UNSUPPORTED;
 
   // Temporarily swap arrays
   complex_t *old_in = plan->in;
@@ -776,7 +776,8 @@ fft_plan_t fft_plan_c2r_1d(int n, complex_t *in, double *out, unsigned flags) {
   if (!cbuf)
     return NULL;
 
-  fft_plan_t plan = fft_plan_dft_1d(n, in, cbuf, 1, flags);
+  fft_plan_t plan =
+      fft_plan_dft_1d(n, in, cbuf, 1, flags | FFT_REAL_OUTPUT);
   if (!plan) {
     fft_free(cbuf);
     return NULL;

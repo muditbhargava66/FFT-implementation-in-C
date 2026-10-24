@@ -57,14 +57,15 @@ fft_error_t fft_execute(fft_plan_t plan);
  * @brief Execute plan with different complex arrays
  *
  * Complex 1-D and 2-D plans only. Real-to-complex and complex-to-real plans
- * keep their real buffer from planning time, so this returns FFT_ERR_SIZE for
- * them rather than transforming the arrays the plan was created with.
+ * keep their real buffer from planning time, so this returns
+ * FFT_ERR_UNSUPPORTED for them rather than transforming the arrays the plan
+ * was created with.
  *
  * @param plan The FFT plan
  * @param in New input array
  * @param out New output array
- * @return FFT_OK, FFT_ERR_NULL if any argument is null, or FFT_ERR_SIZE for a
- *         real-valued plan
+ * @return FFT_OK, FFT_ERR_NULL if any argument is null, or
+ *         FFT_ERR_UNSUPPORTED for a real-valued plan
  */
 fft_error_t fft_execute_dft(fft_plan_t plan, complex_t* in, complex_t* out);
 

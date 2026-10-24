@@ -721,7 +721,7 @@ static void test_plan_api(test_config_t *config) {
       ok = ok && p != NULL && fft_execute(p) == FFT_OK;
       /* A real plan has no complex in/out pair to substitute; execute_dft
        * must refuse rather than transform the arrays it was planned with. */
-      ok = ok && fft_execute_dft(p, cout, cout) == FFT_ERR_SIZE;
+      ok = ok && fft_execute_dft(p, cout, cout) == FFT_ERR_UNSUPPORTED;
       fft_destroy_plan(p);
 
       ok = ok && rel_err(cout[0], (double)rn) < 1e-12;
@@ -731,7 +731,7 @@ static void test_plan_api(test_config_t *config) {
       for (int k = 1; k <= rn / 2; k++) cout[k] = 0.0;
       p = fft_plan_c2r_1d(rn, cout, rout, FFT_ESTIMATE);
       ok = ok && p != NULL && fft_execute(p) == FFT_OK;
-      ok = ok && fft_execute_dft(p, cout, cout) == FFT_ERR_SIZE;
+      ok = ok && fft_execute_dft(p, cout, cout) == FFT_ERR_UNSUPPORTED;
       fft_destroy_plan(p);
 
       for (int i = 0; i < rn && ok; i++)
@@ -744,30 +744,55 @@ static void test_plan_api(test_config_t *config) {
     free(cout);
   }
 
-  /* 2-D on a grid whose rows and columns are both powers of two. */
+  /*
+   * 2-D on a 4x8 grid. The dimensions are deliberately different: a square
+   * plan uses the same algorithm for both passes, so it cannot show whether
+   * execution uses the choice stored for the column pass. Wisdom supplies
+   * Radix-4 for 4 points and Split-Radix for 8, then is cleared before
+   * execute. The plan must still produce the direct 2-D DFT.
+   */
   {
-    const int side = 8;
-    const int total = side * side;
+    const int rows = 4;
+    const int cols = 8;
+    const int total = rows * cols;
     complex_t *gin = malloc((size_t)total * sizeof(complex_t));
     complex_t *gout = malloc((size_t)total * sizeof(complex_t));
     if (!gin || !gout) {
       report("plan api", "2d alloc", 0, 0.0, "out of memory");
     } else {
       fill_random(gin, total, 777u);
-      memcpy(gout, gin, (size_t)total * sizeof(complex_t));
 
-      fft_plan_t p = fft_plan_dft_2d(side, side, gout, gout, -1, FFT_ESTIMATE);
+      fft_import_wisdom_from_string(
+          "# FFT Wisdom v3.0.0 (2 entries)\n"
+          "4 0 2\n"
+          "8 0 3\n");
+      fft_plan_t p =
+          fft_plan_dft_2d(rows, cols, gin, gout, -1, FFT_WISDOM_ONLY);
       int ok = p != NULL && fft_execute(p) == FFT_OK;
-      /* Row/column decomposition keeps the DC bin equal to the total sum. */
-      complex_t sum = 0.0;
-      for (int i = 0; i < total; i++) sum += gin[i];
-      ok = ok && rel_err(gout[0], sum) < tol_for(config, total);
 
-      /* Both passes are chosen at planning time. Replacing the wisdom cache
-       * must not change what an existing plan executes, and a grid whose
-       * element count overflows int is rejected before allocating. */
+      /* Clearing the cache used to make execute re-select the column pass and
+       * return FFT_ERR_SIZE under FFT_WISDOM_ONLY. */
       fft_import_wisdom_from_string("# FFT Wisdom v3.0.0 (0 entries)\n");
       ok = ok && fft_execute(p) == FFT_OK;
+
+      if (ok) {
+        const double tol = tol_for(config, total);
+        for (int kr = 0; kr < rows && ok; kr++) {
+          for (int kc = 0; kc < cols && ok; kc++) {
+            complex_t expected = 0.0;
+            for (int r = 0; r < rows; r++) {
+              for (int c = 0; c < cols; c++) {
+                double angle =
+                    -TWO_PI * ((double)kr * r / rows + (double)kc * c / cols);
+                expected +=
+                    gin[r * cols + c] * (cos(angle) + I * sin(angle));
+              }
+            }
+            ok = rel_err(gout[kr * cols + kc], expected) < tol;
+          }
+        }
+      }
+
       ok = ok && fft_plan_dft_2d(65536, 65536, gout, gout, -1,
                                  FFT_ESTIMATE) == NULL;
       fft_destroy_plan(p);

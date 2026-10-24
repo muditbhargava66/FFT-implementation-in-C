@@ -111,11 +111,14 @@ int save_complex_array(const char* filename, complex_t* data, int n) {
 }
 
 int load_complex_array(const char* filename, complex_t** data, int* n) {
-    if (!filename || !data || !n)
+    if (!data || !n)
         return -1;
 
     *data = NULL;
     *n = 0;
+
+    if (!filename)
+        return -1;
 
     FILE* fp = fopen(filename, "r");
     if (!fp) {

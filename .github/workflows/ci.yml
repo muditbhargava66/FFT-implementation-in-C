@@ -15,9 +15,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# The two C jobs are separate rather than one matrix: the Windows job has to run
-# every step inside the MSYS2 shell, and `shell:` cannot be varied per matrix
-# entry reliably. The docs job is independent and runs MkDocs in strict mode.
+# C builds run on Linux (GCC and Clang), macOS (Apple Clang), and Windows under
+# MSYS2/MinGW-w64 (GCC and clang). Windows steps have to run inside the MSYS2
+# shell, so that job carries its own compiler matrix; the macOS job uses the
+# runner's default toolchain. The docs job is independent and builds MkDocs in
+# strict mode.
 #
 # The GPU backend is left off everywhere. FFT_ENABLE_GPU defaults to OFF, the
 # CUDA sources have not been run against real hardware, and a CI lane that
@@ -63,10 +65,63 @@ jobs:
           grep -E "^Failed: 0 " bench.log >/dev/null || {
             echo "benchmark_all reported failing rows:"; grep -E "^Failed:" bench.log; exit 1; }
 
+      - name: Run application demos
+        run: |
+          for app in audio_spectrum convolution demo_features fft_filtering \
+                     image_fft pitch_detection power_spectrum gpu_benchmark; do
+            echo "== $app"
+            ./build/bin/$app >/dev/null
+          done
+          printf "\n" | timeout 120 ./build/bin/realtime_analyzer >/dev/null
+
+  macos:
+    name: macOS / Apple Clang
+    runs-on: macos-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build 2>&1 | tee build.log
+
+      - name: Fail on compiler warnings
+        run: |
+          if grep -q "warning:" build.log; then
+            echo "Compiler warnings are not allowed:"
+            grep -n "warning:" build.log
+            exit 1
+          fi
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Benchmark smoke test
+        run: |
+          ./build/bin/benchmark_all | tee bench.log
+          grep -E "^Failed: 0 " bench.log >/dev/null || {
+            echo "benchmark_all reported failing rows:"; grep -E "^Failed:" bench.log; exit 1; }
+
+      - name: Run application demos
+        run: |
+          for app in audio_spectrum convolution demo_features fft_filtering \
+                     image_fft pitch_detection power_spectrum gpu_benchmark; do
+            echo "== $app"
+            ./build/bin/$app >/dev/null
+          done
+          printf "\n" | ./build/bin/realtime_analyzer >/dev/null
+
   windows-mingw:
-    name: Windows / MinGW-w64 (ucrt64)
+    name: Windows / MinGW-w64 ${{ matrix.compiler }} (ucrt64)
     runs-on: windows-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
 
     # MSVC's C compiler has no C11 _Complex arithmetic, which this library
     # requires, and CMakeLists.txt stops at configure time with an explanation
@@ -81,13 +136,13 @@ jobs:
           msystem: UCRT64
           update: true
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+            ${{ matrix.compiler == 'gcc' && 'mingw-w64-ucrt-x86_64-gcc' || 'mingw-w64-ucrt-x86_64-clang' }}
 
       - name: Configure
         shell: msys2 {0}
-        run: cmake -S . -B build -G Ninja
+        run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.compiler }}
 
       - name: Build
         shell: msys2 {0}
@@ -112,6 +167,15 @@ jobs:
           ./build/bin/benchmark_all | tee bench.log
           grep -E "^Failed: 0 " bench.log >/dev/null || {
             echo "benchmark_all reported failing rows:"; grep -E "^Failed:" bench.log; exit 1; }
+
+      - name: Run application demos
+        shell: msys2 {0}
+        run: |
+          for app in audio_spectrum convolution demo_features fft_filtering \
+                     image_fft pitch_detection power_spectrum gpu_benchmark; do
+            echo "== $app"
+            ./build/bin/$app.exe >/dev/null
+          done
 
   docs:
     name: Docs / MkDocs (strict)

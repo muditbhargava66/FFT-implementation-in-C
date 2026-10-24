@@ -5,8 +5,10 @@ The public headers are `include/fft_common.h`, `include/fft_algorithms.h`,
 
 ## Error handling
 
-Every transform returns `fft_error_t`. On failure the caller's buffer is left
-unchanged.
+Every transform returns `fft_error_t`. On failure, do not use the output
+buffer: a 1-D transform may already have copied or partly transformed it.
+Out-of-place calls leave the input buffer unchanged. An in-place transform may
+leave its buffer partly modified when it fails.
 
 | Value | Meaning |
 | --- | --- |
@@ -15,6 +17,7 @@ unchanged.
 | `FFT_ERR_SIZE` (-2) | The length is invalid for this algorithm, e.g. a non-power-of-two for radix-4. |
 | `FFT_ERR_ALLOC` (-3) | Scratch memory could not be obtained. |
 | `FFT_ERR_RANGE` (-4) | An argument is outside the supported range, e.g. Bluestein above 2^29. |
+| `FFT_ERR_UNSUPPORTED` (-5) | The operation is not supported by this plan, e.g. `fft_execute_dft()` on a real-valued plan. |
 
 Discarding the return value is legal C, but then a failed transform is
 indistinguishable from a successful one. `CHECK_POWER_OF_TWO(n)` is an
@@ -111,7 +114,7 @@ fft_error_t fft_execute_dft(fft_plan_t plan, complex_t *in, complex_t *out);
 
 Executes a complex 1-D or 2-D plan against different buffers. Real-to-complex
 and complex-to-real plans bind a `double *` at planning time and have no complex
-buffer pair to substitute, so this returns `FFT_ERR_SIZE` for them.
+buffer pair to substitute, so this returns `FFT_ERR_UNSUPPORTED` for them.
 
 ### `fft_destroy_plan`
 

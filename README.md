@@ -35,8 +35,10 @@ references.
 real-to-complex, complex-to-real and 2-D transforms, a wisdom cache, and
 `fft_plan_algorithm_name()` to see what a plan selected.
 
-**Error handling:** every transform returns `fft_error_t` and leaves the
-caller's buffer untouched on failure. The library never calls `exit()`.
+**Error handling:** every transform returns `fft_error_t`. On failure, do not
+use the output buffer: a 1-D transform may already have copied or partly
+transformed it. Out-of-place calls leave the input buffer unchanged, and the
+library never calls `exit()`.
 
 What it does not do:
 
@@ -49,7 +51,7 @@ What it does not do:
 
 ## Build and test
 
-Requires CMake 3.10+ and a C11 compiler with `_Complex` support.
+Requires CMake 3.20+ and a C11 compiler with `_Complex` support.
 
 ```bash
 git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
@@ -255,6 +257,11 @@ fft_plan_t plan = fft_plan_dft_1d(n, signal, signal, -1, FFT_MEASURE);
 Four v2 flags were removed because nothing implemented them: `FFT_PATIENT`,
 `FFT_EXHAUSTIVE`, `FFT_UNALIGNED` and `FFT_THREADED`. If your code passed one
 of them, delete it.
+
+3.1 removes `fft_plan_with_nthreads()`, which only stored a thread count that no
+kernel read, and `FFT_HW_CPU_AVX512`, which the detection code never reported.
+`fft_execute_dft()` now returns `FFT_ERR_UNSUPPORTED` for real-valued plans
+instead of transforming the buffers stored in the plan.
 
 ## License
 

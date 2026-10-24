@@ -20,6 +20,8 @@ MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
   toolchain, and runs the application demos as well as the tests.
 - Linux CI runs the application demos in addition to `test_all` and
   `benchmark_all`.
+- `FFT_ERR_UNSUPPORTED` for an operation a plan cannot perform. It is used by
+  `fft_execute_dft()` when handed a real-valued plan.
 
 ### Fixed
 - 2-D execution allocated its transpose buffer after the row pass. An
@@ -41,17 +43,25 @@ MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
   count overflows `int`.
 - `fft_execute_dft()` accepted real-to-complex and complex-to-real plans and
   silently transformed the buffers the plan was created with. It now returns
-  `FFT_ERR_SIZE` for real-valued plans; the documented contract covers complex
-  1-D and 2-D plans.
+  `FFT_ERR_UNSUPPORTED` for real-valued plans; the documented contract covers
+  complex 1-D and 2-D plans.
 - The `FFT_MEASURE` timing sweep calibrated its batch to 60 raw `clock()` ticks.
   That is 60 ms on Windows but 60 microseconds on POSIX, where `CLOCKS_PER_SEC`
   is 1000000, so the measurement was noise on Linux and macOS. The target is
   now 20 ms expressed as `0.020 * CLOCKS_PER_SEC`.
 - `fft_plan_dft_2d()` wrote a diagnostic to stderr from inside the library. It
   returns `NULL` for a non-power-of-two grid without printing.
-- Removed the unused `g_num_threads` global and the `fft_plan_with_nthreads()`
-  no-op. The function stored a count that no kernel read, and it was the only
-  warning in a debug build.
+- The 2-D regression test used an 8x8 plan and only checked that execution
+  succeeded. It now plans a 4x8 transform under `FFT_WISDOM_ONLY`, clears the
+  cache, and compares every output bin with a direct 2-D DFT, which catches
+  execution re-reading wisdom for the column pass.
+
+### Removed
+- `fft_plan_with_nthreads()` and the unused `g_num_threads` global. The
+  function stored a count that no kernel read, and removing it also removed the
+  only warning in a debug build.
+- `FFT_HW_CPU_AVX512` from the hardware capability flags. The detection code
+  never set it.
 
 ### Changed
 - Version bumped to 3.1.0 in CMake, `fft_version()`, the documentation, the
@@ -59,7 +69,18 @@ MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
 - Documentation corrected against the code: removed the deleted `CHECK_NULL`
   example, documented the 2-D power-of-two restriction and the
   `fft_execute_dft()` limitation, replaced code samples that called functions
-  which do not exist, and fixed the Bluestein/mixed-radix ratios in the README.
+  which do not exist, described the demos as they are actually implemented
+  (frequency-sampling FIR, no per-hop plan, four filter types), removed the
+  stale standalone `gcc` command, and fixed the Bluestein/mixed-radix ratios in
+  the README.
+- The documented error contract now says that a failed 1-D transform may leave
+  the output buffer partly written. The old wording promised every caller
+  buffer was untouched, which `fft_execute()` did not provide.
+- The CMake minimum is 3.20. The project uses `CONFIGURE_DEPENDS`,
+  `add_compile_definitions`, `CMAKE_CUDA_ARCHITECTURES`, and the documented
+  `ctest --test-dir` command, none of which work on 3.10.
+- `fft_plan_c2r_1d()` now sets `FFT_REAL_OUTPUT` in the plan flags, matching
+  the documented behavior and `fft_plan_r2c_1d()`.
 - Removed the unused `mkdocstrings` plugin and its dependencies. The project has
   no Python modules to document, the plugin required Python 3.11, and it made
   the docs build fail on Python 3.10.

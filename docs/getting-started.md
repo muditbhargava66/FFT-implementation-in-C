@@ -5,7 +5,7 @@
 - A C11 compiler with `_Complex` support: GCC 4.8+ or Clang 3.4+. On Windows,
   use MinGW-w64 or clang; MSVC's `cl.exe` is rejected at configure time because
   it has no C11 `_Complex` arithmetic.
-- CMake 3.10 or newer.
+- CMake 3.20 or newer.
 - The C math library (`libm` on Linux; macOS resolves these functions from its
   C runtime).
 

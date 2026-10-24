@@ -24,18 +24,19 @@ resolution differences without needing an audio file.
 Simulates a streaming analyzer: a 2048-sample window, 512-sample hop, Hann
 window and four-frame averaging. It waits for Enter, then processes ten seconds
 of generated audio and prints peak tracks. The program uses a sliding buffer and
-`fft_plan_dft_1d()` rather than transforming each hop with a fresh one-shot call.
+calls `radix2_dit_fft()` for each completed hop. It does not reuse a plan; the
+tips printed at the end point out that a real-time implementation should.
 
 ## fft_filtering
 
 `./build/bin/fft_filtering`
 
-Builds low-pass, high-pass and band-pass filters in the frequency domain, plots
-their responses in ASCII, and filters a multi-tone signal. It also designs a
-windowed-sinc FIR filter with `design_fir_filter()` and compares the
-frequency-domain and time-domain approaches. All three filter types are
-implemented in this file; the library itself only supplies the FFT and window
-functions.
+Builds low-pass, high-pass, band-pass and band-stop (notch) filters in the
+frequency domain, plots their responses in ASCII, and filters a multi-tone
+signal. It also designs a frequency-sampling FIR filter with a Hamming window
+through `design_fir_filter()` and prints the first coefficients. There is no
+time-domain FIR comparison. All four filter types are implemented in this file;
+the library itself only supplies the FFT and window functions.
 
 ## convolution
 

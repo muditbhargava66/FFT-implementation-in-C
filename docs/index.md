@@ -29,8 +29,10 @@ complex-to-real and 2-D transforms. The planner chooses by transform size, or by
 timing the candidates when `FFT_MEASURE` is set. A wisdom cache can save and
 restore those choices.
 
-**Errors:** every transform returns `fft_error_t` and leaves the caller's buffer
-untouched when it fails. The library never exits the process.
+**Errors:** every transform returns `fft_error_t`. On failure, do not use the
+output buffer; a 1-D transform may already have copied or partly transformed
+it. Out-of-place calls leave the input buffer unchanged, and the library never
+exits the process.
 
 ## What it does not do
 

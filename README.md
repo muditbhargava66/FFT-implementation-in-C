@@ -2,8 +2,10 @@
 
 # FFT Implementation in C
 
-[![Documentation](https://readthedocs.org/projects/fft-implementation-in-c/badge/?version=latest)](https://fft-implementation-in-c.readthedocs.io/)
+[![Documentation](https://app.readthedocs.org/projects/fft-implementation-in-c/badge/?version=latest)](https://fft-implementation-in-c.readthedocs.io/en/latest/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
+[![GPU Support](https://img.shields.io/badge/GPU-source--only-lightgrey)]()
 [![Release](https://img.shields.io/badge/release-3.1.0-success)]()
 
 </div>
@@ -86,10 +88,10 @@ binary only needs to run on the build machine.
 
 The Windows 11 row is the 3.0.0 release measurement. The other rows were run on
 the 3.1.0 source: Ubuntu 24.04 in a container, macOS on an Apple M1 Pro, and
-the two Windows rows by the 3.1.0 CI workflow on `windows-latest`. All
-application binaries exit 0 on macOS, Linux and Windows. Performance figures
-below are from the Windows 3.0.0 machine; they are not a cross-platform
-comparison.
+the two Windows rows by the 3.1.0 CI workflow on `windows-latest`. The eight
+demo binaries used by CI exit 0 on all three platforms; `realtime_analyzer` is
+exercised on macOS and Linux. Performance figures below are from the Windows
+3.0.0 machine; they are not a cross-platform comparison.
 
 ## Usage
 

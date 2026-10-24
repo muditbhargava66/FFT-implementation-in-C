@@ -137,6 +137,11 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
     
     // Allocate array
     *data = allocate_complex_array(*n);
+    if (!*data) {
+        fclose(fp);
+        *n = 0;
+        return -1;
+    }
     
     // Read data
     rewind(fp);
@@ -151,6 +156,22 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
         }
     }
     
+    if (ferror(fp)) {
+        fclose(fp);
+        free_complex_array(*data);
+        *data = NULL;
+        *n = 0;
+        return -1;
+    }
+
+    if (idx != *n) {
+        fclose(fp);
+        free_complex_array(*data);
+        *data = NULL;
+        *n = 0;
+        return -1;
+    }
+
     fclose(fp);
     return 0;
 }

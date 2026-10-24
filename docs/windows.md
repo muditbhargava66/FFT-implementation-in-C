@@ -31,9 +31,7 @@ native type there — it offers `_Dcomplex` structures and function forms such a
 Making MSVC work would mean rewriting all eight algorithms against those helper
 calls. Until that is done, `CMakeLists.txt` fails at configure time with this
 explanation, and `include/fft_common.h` repeats it as an `#error`, rather than
-producing hundreds of unhelpful diagnostics halfway through the build. An
-earlier revision carried a `#ifdef _MSC_VER` branch that typedef'd `_Dcomplex`
-and included `<complex>` — a C++ header — so it could not compile either.
+producing hundreds of diagnostics halfway through the build.
 
 ## Build
 
@@ -73,13 +71,11 @@ this limit together.
 ## GPU support
 
 Not available on a Windows build. The CUDA sources under `gpu/` are outside the
-default build, and the dispatch layer that would call them is not wired up —
+default build, and the dispatch layer that would call them is not wired up:
 every `fft_gpu_*` symbol resolves to `utils/fft_gpu_stubs.c`, so
 `fft_gpu_available()` returns 0 and `FFT_PREFER_GPU` falls back to a CPU
-algorithm. Earlier revisions of this page listed a `-DENABLE_CUDA=ON` option
-that has never existed in `CMakeLists.txt`; the real option is
-`FFT_ENABLE_GPU`, and turning it on compiles the kernels without connecting
-them.
+algorithm. The real option is `FFT_ENABLE_GPU`, and turning it on compiles the
+kernels without connecting them.
 
 ## Troubleshooting
 

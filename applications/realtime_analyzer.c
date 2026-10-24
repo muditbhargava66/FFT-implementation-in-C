@@ -297,12 +297,11 @@ int main() {
     // Tips for real implementation
     printf("\n\nImplementation Tips:\n");
     printf("===================\n");
-    printf("1. Use ring buffer for efficient sliding window\n");
+    printf("1. Use a ring buffer for the sliding window\n");
     printf("2. Pre-compute window functions\n");
-    printf("3. Use SIMD operations for better performance\n");
-    printf("4. Consider GPU acceleration for multiple channels\n");
-    printf("5. Implement double-buffering for real-time processing\n");
-    printf("6. Use lock-free queues for thread communication\n");
+    printf("3. Reuse an fft_plan_t instead of planning per frame\n");
+    printf("4. Implement double-buffering for capture and processing\n");
+    printf("5. Size the FFT to the hop budget on the target machine\n");
     
     // Cleanup
     free(test_signal);

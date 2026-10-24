@@ -61,6 +61,7 @@ Out of scope:
 
 ## Disclosure
 
-We will acknowledge a report as soon as practical, confirm the affected
-versions, and prepare a fix. Please allow time for a release before public
-disclosure. Credit will be given in the changelog unless you prefer otherwise.
+The maintainer will acknowledge a report as soon as practical, confirm the
+affected versions, and prepare a fix. Please allow time for a release before
+public disclosure. Credit will be given in the changelog unless you prefer
+otherwise.

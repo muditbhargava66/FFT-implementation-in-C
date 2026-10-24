@@ -309,12 +309,11 @@ int main() {
     /* Performance characteristics */
     printf("\n\nAlgorithm Characteristics:\n");
     printf("=========================\n");
-    printf("✓ In-place computation (memory efficient)\n");
-    printf("✓ Bit-reversal can be optimized with lookup tables\n");
-    printf("✓ Twiddle factors can be precomputed\n");
-    printf("✓ Good cache locality in later stages\n");
-    printf("✓ Easily parallelizable\n");
-    printf("✓ Industry standard for power-of-2 sizes\n");
+    printf("- In-place computation; no scratch buffer\n");
+    printf("- Bit-reversal permutation before the butterflies\n");
+    printf("- Twiddles computed per stage\n");
+    printf("- Good cache locality in later stages\n");
+    printf("- Common choice for power-of-two sizes\n");
     
     /* Clean up */
     free_complex_array(signal);

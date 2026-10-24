@@ -12,7 +12,6 @@
  * - High-pass filter
  * - Band-pass filter
  * - Band-stop (notch) filter
- * - Custom frequency response filter
  */
 
 // Filter types
@@ -20,8 +19,7 @@ typedef enum {
     FILTER_LOWPASS,
     FILTER_HIGHPASS,
     FILTER_BANDPASS,
-    FILTER_BANDSTOP,
-    FILTER_CUSTOM
+    FILTER_BANDSTOP
 } filter_type_t;
 
 // Filter parameters
@@ -98,7 +96,34 @@ void apply_transition_band(complex_t* H, int n, filter_params_t* params) {
                 }
                 break;
                 
-            // Add similar transitions for bandpass/bandstop
+            case FILTER_BANDPASS: {
+                double f = fabs(freq);
+                double low = params->cutoff_low;
+                double high = params->cutoff_high;
+                if (f > low - transition/2 && f < low + transition/2) {
+                    double t = (f - (low - transition/2)) / transition;
+                    magnitude = 0.5 * (1 - cos(PI * t));
+                } else if (f > high - transition/2 && f < high + transition/2) {
+                    double t = (f - (high - transition/2)) / transition;
+                    magnitude = 0.5 * (1 + cos(PI * t));
+                }
+                break;
+            }
+
+            case FILTER_BANDSTOP: {
+                double f = fabs(freq);
+                double low = params->cutoff_low;
+                double high = params->cutoff_high;
+                if (f > low - transition/2 && f < low + transition/2) {
+                    double t = (f - (low - transition/2)) / transition;
+                    magnitude = 0.5 * (1 + cos(PI * t));
+                } else if (f > high - transition/2 && f < high + transition/2) {
+                    double t = (f - (high - transition/2)) / transition;
+                    magnitude = 0.5 * (1 - cos(PI * t));
+                }
+                break;
+            }
+
             default:
                 break;
         }

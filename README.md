@@ -4,423 +4,256 @@
 
 [![Documentation](https://readthedocs.org/projects/fft-implementation-in-c/badge/?version=latest)](https://fft-implementation-in-c.readthedocs.io/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
-[![GPU Support](https://img.shields.io/badge/GPU-source--only-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-3.0.0%20(2026--10--23)-success)]()
-
-**A Fast Fourier Transform library in C11: eight algorithms, automatic
-algorithm selection backed by measurement, a planning API, and cross-platform
-builds for GCC and Clang.**
+[![Release](https://img.shields.io/badge/release-3.0.0-success)]()
 
 </div>
 
-## What's New in v3.0.0
+A C11 FFT library with eight algorithm implementations, a planning API, and
+algorithm selection based on measured cost. Builds with GCC and Clang on Linux,
+macOS and Windows (MinGW-w64). MSVC's `cl.exe` is not supported.
 
-- **Real-to-Complex & Complex-to-Real FFT**: Proper `fft_plan_r2c_1d` / `fft_plan_c2r_1d` with Hermitian-symmetric output
-- **2D FFT Planning**: `fft_plan_dft_2d` via row-column decomposition with internal transpose
-- **Wisdom Cache**: Save and reload algorithm selections with `fft_export_wisdom_to_string` / `fft_import_wisdom_from_string`
-- **2D FFT Convolution**: Full `fft_convolution_2d` using row-column FFT decomposition
-- **Cross-PSD Coherence**: Proper magnitude-squared coherence using Welch's method
-- **Measured Algorithm Selection**: The size rules and the `FFT_MEASURE` timing sweep are both backed by recorded numbers, and the chosen algorithm is readable with `fft_plan_algorithm_name()`
-- **1361/1361 Checks Passing**: 100% pass rate across all 8 algorithm implementations, verified against an independent direct DFT
-- **Validated Planning Wisdom**: Cached and imported algorithm choices are checked against the transform size and the machine's hardware; `FFT_CONSERVE_MEMORY` selects an in-place kernel and is no longer overridden by `FFT_MEASURE`
-- **Error codes instead of `exit()`**: Every transform returns `fft_error_t`; linking the library no longer puts your process at risk of being terminated by it
-- **CI on Linux and Windows**: GCC and Clang lanes on Linux, MinGW-w64 on Windows, each failing on compiler warnings and checking the benchmark's pass/fail line
-- **License**: Moved from MIT to Apache 2.0 for patent protection
+## Contents
 
-## Table of Contents
-
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
+- [What's in the library](#whats-in-the-library)
+- [Build and test](#build-and-test)
 - [Usage](#usage)
 - [Performance](#performance)
 - [Documentation](#documentation)
+- [Project layout](#project-layout)
 - [Contributing](#contributing)
 - [License](#license)
 
-## Features
+## What's in the library
 
-### Core Algorithms
-- **Radix-2 DIT/DIF**: Classic Cooley-Tukey implementations
-- **Radix-4**: Higher radix for 25% fewer operations
-- **Split-Radix**: Fewest multiplications of the group, though 1.6-2.9x slower in wall time here because the recursion moves about 2.5n elements per level
-- **Bluestein**: Arbitrary size FFTs
-- **Mixed-Radix**: True Cooley-Tukey for composite sizes; efficient when memory matters more than speed
-- **Automatic Selection**: Let the library choose the best algorithm
+**Algorithms:** radix-2 DIT, radix-2 DIF, radix-4, split-radix, Bluestein,
+mixed-radix, a recursive radix-2 implementation, and naive/optimized DFT
+references.
 
-### Planning & Execution API
-- **1D Complex FFT**: `fft_plan_dft_1d` with automatic algorithm selection
-- **Real-to-Complex FFT**: `fft_plan_r2c_1d` for real-valued signals
-- **Complex-to-Real FFT**: `fft_plan_c2r_1d` for inverse real-valued transforms
-- **2D Complex FFT**: `fft_plan_dft_2d` via row-column decomposition
-- **Wisdom Cache**: Save/restore algorithm selections across sessions
+**Planning API:** one-shot `fft_auto()`, reusable plans for 1-D complex,
+real-to-complex, complex-to-real and 2-D transforms, a wisdom cache, and
+`fft_plan_algorithm_name()` to see what a plan selected.
 
-### GPU Acceleration (source present, not functional)
-- **NVIDIA CUDA**: `gpu/fft_cuda.cu`. `-DFFT_ENABLE_GPU=ON` compiles the CUDA
-  objects, but does not connect them to the C planner.
-- **Apple Metal**: `gpu/fft_metal.m`, outside the default build
-- **Stubbed in the default build**: `utils/fft_gpu_stubs.c` supplies every
-  `fft_gpu_*` symbol, so `fft_gpu_available()` returns 0 and `FFT_PREFER_GPU`
-  falls back to a CPU algorithm
+**Error handling:** every transform returns `fft_error_t` and leaves the
+caller's buffer untouched on failure. The library never calls `exit()`.
 
-The GPU dispatch calls in `fft_auto.c` are compiled only for Apple or
-CUDA-compiler builds, and no backend has been run against hardware since it left
-the default build. This repository therefore publishes no GPU timings.
+What it does not do:
 
-### Applications
-- Audio spectrum analysis with windowing
-- Digital filtering (low-pass, high-pass, band-pass)
-- Fast 1D and 2D convolution
-- Power spectrum estimation with coherence analysis
-- 2D image FFT processing
+- No SIMD, threaded or fixed-point kernels.
+- No GPU execution. The CUDA and Metal sources are in `gpu/` but outside the
+  default build, and the planner resolves `fft_gpu_*` to CPU stubs.
+- Not thread-safe. Algorithm selection and the wisdom cache share global state,
+  so do not plan from multiple threads.
+- 2-D plans accept power-of-two row and column counts only.
 
-### Optimizations
+## Build and test
 
-What the library actually does to go fast, and what it does not:
+Requires CMake 3.10+ and a C11 compiler with `_Complex` support.
 
-- **Algorithm selection**: `select_algorithm()` picks a kernel from measured
-  cost ratios rather than from folklore, and `FFT_MEASURE` times the candidates
-  on the host and caches the winner.
-- **Wisdom cache**: `FFT_WISDOM_ONLY` reuses a cached choice and refuses to plan
-  if there is none, so planning never measures. Exportable and importable as
-  text via `fft_export_wisdom_to_string` / `fft_import_wisdom_from_string`.
-- **Twiddle accumulation**: the radix kernels build twiddles multiplicatively
-  per stage instead of calling `cexp()` per butterfly.
-- **Aligned allocation**: 64-byte aligned buffers from `fft_alloc_complex`.
-- **No SIMD, threading, fixed-point or GPU execution.** Earlier revisions of
-  this README listed SSE2/AVX kernels, a pthreads/OpenMP stage splitter and a
-  Q15 fixed-point path. Those files compiled into `libfft_lib_c.a` but were
-  declared in no header and called by nothing, so no plan could ever reach
-  them; they have been deleted rather than left as unreachable objects. The GPU
-  sources under `gpu/` are outside the default build; `FFT_ENABLE_GPU=ON`
-  compiles the CUDA objects without wiring them to the planner, so a default
-  build is CPU-only. No GPU number in this repository has been measured.
-- **Not thread-safe**: algorithm selection and the wisdom cache share global
-  state with no locking, so do not plan concurrently.
+```bash
+git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
+cd FFT-implementation-in-C
 
-## Quick Start
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
-### Simple FFT (One-Shot API)
+The test binary is `build/bin/test_all`. It compares every implementation
+against a direct DFT computed independently inside the test file, across 30
+sizes from 1 to 16384. The benchmark suite is `build/bin/benchmark_all`.
+
+To build with a specific compiler:
+
+```bash
+cmake -S . -B build -DCMAKE_C_COMPILER=clang
+```
+
+`-march=native` is off by default; enable it with `-DFFT_NATIVE_ARCH=ON` if the
+binary only needs to run on the build machine.
+
+### Verified builds
+
+| Platform | Compiler | Result |
+| --- | --- | --- |
+| Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 1361/1361 checks, 0 warnings; benchmarks 52 passed, 0 failed, 2 skipped |
+| Ubuntu 24.04 (x86_64) | GCC 13.3.0 | 1361/1361 checks, 0 warnings; benchmarks 52/0/2 |
+| Ubuntu 24.04 (x86_64) | Clang 18.1.3 | 1361/1361 checks, 0 warnings |
+| macOS 27, arm64 | Apple Clang 21.0.0 | 1361/1361 checks, 0 warnings; benchmarks 52/0/2 |
+| macOS 27, arm64 | Homebrew GCC 16.2.0 | 1361/1361 checks, 0 warnings |
+| Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
+
+The Windows row is the release measurement. The Linux rows were run in an
+Ubuntu 24.04 container; the macOS rows on an Apple M1 Pro. All application
+binaries exit 0 on each platform. Performance figures below are from the Windows
+machine only; they are not a cross-platform comparison.
+
+## Usage
+
+### One-shot transform
 
 ```c
 #include <fft_auto.h>
 
-int main() {
+int main(void) {
     int n = 1024;
-    complex_t* signal = fft_alloc_complex(n);
-    
-    // Generate signal
+    complex_t *signal = fft_alloc_complex(n);
+
     for (int i = 0; i < n; i++)
-        signal[i] = sin(2 * PI * 50 * i / 1000.0);  // 50 Hz
-    
-    // Automatic FFT — chooses the best CPU algorithm for this machine
-    fft_auto(signal, signal, n, -1);  // -1 for forward FFT
-    
+        signal[i] = sin(2 * PI * 50 * i / 1000.0);
+
+    fft_error_t err = fft_auto(signal, signal, n, FFT_FORWARD);
+    if (err != FFT_OK) {
+        fprintf(stderr, "fft_auto failed: %d\n", (int)err);
+        fft_free(signal);
+        return 1;
+    }
+
     fft_free(signal);
     return 0;
 }
 ```
 
-### With Planning (Advanced)
+### Reusable plan
 
 ```c
-// Create optimized plan
-fft_plan_t plan = fft_plan_dft_1d(n, signal, signal, -1, 
-                                   FFT_MEASURE | FFT_PREFER_GPU);
+fft_plan_t plan = fft_plan_dft_1d(n, signal, signal, -1, FFT_MEASURE);
+if (!plan) return 1;
 
-// Execute multiple times with same plan
 for (int i = 0; i < 1000; i++) {
     generate_signal(signal, n);
     fft_execute(plan);
     process_spectrum(signal, n);
 }
 
+printf("algorithm: %s\n", fft_plan_algorithm_name(plan));
 fft_destroy_plan(plan);
 ```
 
-### Real-to-Complex FFT (New in v3.0.0)
+`FFT_ESTIMATE` picks by size alone. `FFT_MEASURE` times the candidates that
+accept the length and caches the winner. `FFT_WISDOM_ONLY` reuses a cached
+choice or returns a NULL plan, so it never measures. `FFT_CONSERVE_MEMORY`
+prefers in-place kernels and takes precedence over `FFT_MEASURE`.
+
+### Real-valued transforms
 
 ```c
-double* real_signal = fft_alloc_real(1024);
-complex_t* spectrum = fft_alloc_complex(513);  // n/2 + 1
+double *in = fft_alloc_real(1024);
+complex_t *spectrum = fft_alloc_complex(513);   /* n/2 + 1 bins */
 
-fft_plan_t plan = fft_plan_r2c_1d(1024, real_signal, spectrum, FFT_ESTIMATE);
+fft_plan_t plan = fft_plan_r2c_1d(1024, in, spectrum, FFT_ESTIMATE);
 fft_execute(plan);
 fft_destroy_plan(plan);
 ```
 
-### Wisdom Cache (New in v3.0.0)
+`fft_plan_c2r_1d()` is the inverse. It expects `n/2+1` complex bins and writes
+`n` real samples.
 
-```c
-// Export wisdom after planning
-char* wisdom = fft_export_wisdom_to_string();
-save_to_file("fft_wisdom.txt", wisdom);
-free(wisdom);
-
-// Import wisdom in future runs
-char* saved = load_from_file("fft_wisdom.txt");
-fft_import_wisdom_from_string(saved);
-free(saved);
-```
-
-## Installation
-
-### Prerequisites
-
-- C compiler with C11 `complex.h` and `_Complex` support: GCC 4.8+, Clang 3.4+.
-  `cl.exe` is not supported — see *Platform support* under Installation
-- CMake 3.10+
-- Optional: CUDA Toolkit 11.0+ for NVIDIA GPU support
-- Optional: Xcode 12+ for Metal support on macOS
-
-### Build from Source
-
-```bash
-# Clone repository
-git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
-cd FFT-implementation-in-C
-
-# Configure and build
-cmake -S . -B build
-cmake --build build --config Release
-
-# Run tests
-./build/bin/test_all    # 1361/1361 checks expected
-```
-
-#### macOS
-```bash
-cmake -S . -B build
-cmake --build build
-./build/bin/test_all
-```
-
-#### Platform support
-
-| Platform | Compiler           | Status                                                            |
-| -------- | ------------------ | ----------------------------------------------------------------- |
-| Windows  | MinGW-w64 GCC      | Verified: 1361/1361 checks, no warnings                           |
-| Windows  | clang / clang-cl   | Expected to work, not verified                                    |
-| Linux    | GCC, Clang         | Target platform, not verified in this repository's recent history |
-| macOS    | Clang (Apple), GCC | Target platform, not verified                                     |
-| Windows  | MSVC `cl.exe`      | **Not supported**                                                 |
-
-Only the MinGW-w64 line above was executed while these docs were last updated.
-The others describe what the code targets — it is standard C11 plus POSIX where
-guarded — and are not claims about measured behaviour. If you build on one of
-them, `ctest` is the check.
-
-`cl.exe` cannot build this library. Every kernel is written against C11 complex
-arithmetic (`x[i] = x[j] * w`, `a += b`, `x /= n`), which needs the `_Complex`
-keyword and the operators the standard defines for it. Microsoft's C compiler
-has neither: its `complex.h` offers structure types such as `_Dcomplex` and
-states that the arithmetic operators are not defined for them. Supporting it
-would mean rewriting every kernel against `_Cmulcc`-style helpers, so CMake now
-stops with that explanation instead of failing partway through the build.
-
-```cmd
-cmake -S . -B build
-cmake --build build
-.\build\bin\test_all.exe
-```
-
-## Usage
-
-### Basic Usage
-
-```c
-#include <fft_auto.h>
-
-// Allocate aligned memory
-complex_t* data = fft_alloc_complex(1024);
-
-// Perform FFT with automatic optimization
-fft_auto(data, data, 1024, FFT_FORWARD);
-
-// For inverse FFT
-fft_auto(data, data, 1024, FFT_INVERSE);
-
-// Free memory
-fft_free(data);
-```
-
-### GPU Acceleration
-
-```c
-// Check GPU availability
-if (fft_gpu_available()) {
-    printf("GPU: %s\n", fft_gpu_get_device_name());
-}
-
-// Force GPU usage
-fft_plan_t plan = fft_plan_dft_1d(n, in, out, -1, FFT_PREFER_GPU);
-```
-
-### 2D FFT (New in v3.0.0)
+### 2-D transform
 
 ```c
 int rows = 256, cols = 256;
-complex_t* image = fft_alloc_complex(rows * cols);
+complex_t *image = fft_alloc_complex(rows * cols);
 
 fft_plan_t plan = fft_plan_dft_2d(rows, cols, image, image, -1, FFT_ESTIMATE);
 fft_execute(plan);
 fft_destroy_plan(plan);
 ```
 
+Rows and columns must both be powers of two. The transform is implemented as a
+row pass, a transpose, a column pass, and a transpose back.
+
+### Wisdom cache
+
+```c
+char *wisdom = fft_export_wisdom_to_string();
+if (wisdom) {
+    save_to_file("fft_wisdom.txt", wisdom);
+    free(wisdom);
+}
+
+/* Later, in another process: */
+fft_import_wisdom_from_string(saved);
+fft_plan_t plan = fft_plan_dft_1d(n, in, out, -1,
+                                  FFT_MEASURE | FFT_WISDOM_ONLY);
+```
+
+Imported entries are validated against the transform size and the current
+machine before use. A bad entry is treated as a cache miss, not as a plan that
+fails later.
+
 ## Performance
 
-### Test Results — 1361/1361 checks passing
+Costs below are relative to radix-2 DIT at the same `n`, so below 1.00 is
+faster. They were measured on an Intel i7-9750H (Windows 11, MinGW-w64 GCC
+13.2.0) with the default `-O3` build. Ratios are used because absolute times on
+that laptop move by up to 2.9x between runs of the same binary; the ranges are
+in [docs/performance.md](docs/performance.md).
 
-Every implementation is compared against a direct O(n^2) DFT computed inside the
-test file with no shared code, across 30 sizes from 1 to 16384 including primes,
-`2 * 4^k` and sizes above 1024. See [docs/performance.md](docs/performance.md)
-for the full measurement method.
+| n | Radix-2 DIF | Radix-4 | Split-Radix | Mixed-Radix | Bluestein |
+| --- | --- | --- | --- | --- | --- |
+| 16 | 1.06 | 1.41 | 1.64 | 0.99 | 11.11 |
+| 64 | 1.06 | 1.21 | 2.44 | 1.02 | 11.30 |
+| 256 | 1.00 | 1.10 | 2.38 | 0.99 | 11.90 |
+| 512 | 0.95 | **0.83** | 2.00 | 1.01 | 10.34 |
+| 1024 | 0.97 | 0.97 | 2.30 | 1.04 | 11.41 |
+| 4096 | 1.02 | **0.89** | 1.99 | 1.03 | 9.54 |
+| 16384 | 1.00 | **0.93** | 2.86 | 1.01 | 9.68 |
 
-### Release 3.0.0 verification (2026-10-23)
+Mixed-radix forwards power-of-two lengths to radix-2 DIT, so its column is the
+control: it must read 1.00, and it measures 0.99-1.04. That is the resolution of
+the method. Radix-4 wins from 512 up, which is where `select_algorithm()` puts
+the crossover. Split-radix has the lowest multiplication count but is 1.6-2.9x
+slower in wall time because of its memory traffic.
 
-| Check                                                  | Result                                   |
-| ------------------------------------------------------ | ---------------------------------------- |
-| Clean build, MinGW-w64 GCC 13.2.0, `-Wall -Wextra -O3` | 0 warnings, 0 errors                     |
-| Correctness suite (`test_all`)                         | 1361/1361 checks                         |
-| `ctest`                                                | 1/1 test passed                          |
-| `benchmark_all`                                        | 52 passed, 0 failed, 2 skipped in 17.1 s |
-| Example programs (9 executables)                       | all exit 0                               |
-| `realtime_analyzer` launches                           | 5/5, 0 crashes                           |
-
-The skipped benchmark rows are the two implementations that cannot run at the
-largest size in that harness; they are counted, not silently dropped.
-
-CI on the release branch passed all four lanes: Linux GCC, Linux Clang,
-Windows MinGW-w64 and the strict MkDocs build. The Linux GCC suite was also run
-directly under WSL Ubuntu 22.04 and reported 1361/1361 checks. A strict C99
-build with GCC 15.3 in a container — the toolchain generation from issue #4 —
-also passed 1361/1361 with implicit function declarations promoted to errors.
-
-### Relative cost, all 8 kernels
-
-Each cell is that kernel's time divided by **radix-2 DIT at the same n**, so
-below 1.00 is faster. Measured on an Intel Core i7-9750H with MinGW-w64 GCC
-13.2.0 and the project's default `-O3` (no `-march=native`; that is opt-in via
-`-DFFT_NATIVE_ARCH=ON`).
-
-| n     | Radix-2 DIF | Radix-4  | Split-Radix | Mixed-Radix | Bluestein |
-| ----- | ----------- | -------- | ----------- | ----------- | --------- |
-| 16    | 1.06        | 1.41     | 1.64        | 0.99        | 11.11     |
-| 64    | 1.06        | 1.21     | 2.44        | 1.02        | 11.30     |
-| 256   | 1.00        | 1.10     | 2.38        | 0.99        | 11.90     |
-| 512   | 0.95        | **0.83** | 2.00        | 1.01        | 10.34     |
-| 1024  | 0.97        | 0.97     | 2.30        | 1.04        | 11.41     |
-| 4096  | 1.02        | **0.89** | 1.99        | 1.03        | 9.54      |
-| 16384 | 1.00        | **0.93** | 2.86        | 1.01        | 9.68      |
-
-Ratios rather than milliseconds, because absolute times are not reproducible on
-this machine: three runs of one probe put radix-2 DIT at n=16384 at 0.501, 1.372
-and 1.433 ms — a 2.9x spread for byte-identical code. See
-[docs/performance.md](docs/performance.md) for the method and the per-cell ranges.
-
-What the numbers support, and what they do not:
-
-- **The Mixed-Radix column is the control.** `mixed_radix_fft()` forwards
-  power-of-two lengths straight to `radix2_dit_fft()`, so it has to read 1.00 —
-  and it lands at 0.99-1.04. That is the resolution of the whole method, so
-  differences smaller than it are not measurements.
-- **Radix-2 DIT and DIF are indistinguishable**, 0.95-1.07 at every size.
-- **Radix-4 crosses over between 256 and 512**: 1.41x and 1.21x slower at 16 and
-  64, then 0.83x, 0.89x and 0.93x faster from 512 up. That is where
-  `select_algorithm()` puts the threshold.
-- Split-radix is reproducibly 1.6-2.9x slower despite the lowest multiplication
-  count: its recursion moves about 2.5n elements per level.
-- Bluestein pads the convolution to `next_power_of_two(2n-1)`, so using it where
-  a radix kernel applies costs about 10x — the most stable column here.
-
-### Non-power-of-two: Bluestein vs mixed-radix
-
-| n               | Bluestein | Mixed-Radix | Bluestein / Mixed |
-| --------------- | --------- | ----------- | ----------------- |
-| 360 (2^3*3^2*5) | 0.24069   | 0.37200     | 0.65x             |
-| 1000 (2^3*5^3)  | 0.46667   | 1.40107     | 0.33x             |
-| 4095 (3*5*7*13) | 2.22222   | 9.50000     | 0.23x             |
-| 97 (prime)      | 0.05233   | 0.84127     | 0.06x             |
-| 1021 (prime)    | 0.46200   | 81.00000    | 0.01x             |
-
-Bluestein wins at every length measured. Mixed-radix has no factor to divide by
-at a prime and falls back to a direct O(n^2) DFT, which is where the two-order-
-of-magnitude gaps come from. It stays reachable for callers that pass
-`FFT_CONSERVE_MEMORY`, because Bluestein holds roughly 9n complex numbers of
-scratch against mixed-radix's n. The same flag keeps power-of-two lengths on
-in-place radix-2 DIT rather than radix-4, which permutes through an O(n) buffer.
+For non-power-of-two lengths Bluestein beat mixed-radix at every size tested
+(97, 251, 360, 1000, 1021, 4095, 6561), by 2.1x at 360 and 241x at the prime
+1021. Mixed-radix stays available for callers that pass `FFT_CONSERVE_MEMORY`,
+where Bluestein's roughly 9n complex-numbers of scratch do not fit.
 
 ## Documentation
 
-Full documentation is available at: https://fft-implementation-in-c.readthedocs.io/
+The full docs are at <https://fft-implementation-in-c.readthedocs.io/>:
 
-- [Getting Started Guide](https://fft-implementation-in-c.readthedocs.io/en/latest/getting-started/)
-- [API Reference](https://fft-implementation-in-c.readthedocs.io/en/latest/api-reference/)
-- [Algorithm Details](https://fft-implementation-in-c.readthedocs.io/en/latest/algorithms/)
-- [Performance Guide](https://fft-implementation-in-c.readthedocs.io/en/latest/performance/)
+- [Getting started](https://fft-implementation-in-c.readthedocs.io/en/latest/getting-started/)
+- [API reference](https://fft-implementation-in-c.readthedocs.io/en/latest/api-reference/)
+- [Algorithm guide](https://fft-implementation-in-c.readthedocs.io/en/latest/algorithms/)
+- [Performance guide](https://fft-implementation-in-c.readthedocs.io/en/latest/performance/)
+
+## Project layout
+
+```
+include/        public headers
+algorithms/     core kernels, DFT references, planner (core/, dft/, auto/)
+utils/          windows, helpers, GPU stubs
+applications/   runnable demos
+benchmarks/     benchmark_all and gpu_benchmark
+tests/          test_all.c
+gpu/            CUDA and Metal sources, not in the default build
+docs/           MkDocs site
+```
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-Security reports should follow [SECURITY.md](SECURITY.md) and use private
-reporting rather than a public issue.
+See [CONTRIBUTING.md](CONTRIBUTING.md). For security reports, use the private
+reporting described in [SECURITY.md](SECURITY.md) rather than a public issue.
 
-### Areas for Contribution
-- Additional GPU backends (OpenCL, ROCm)
-- More algorithms (Prime Factor, Winograd)
-- Language bindings (Python, Julia, Rust)
-- Performance optimizations
+## Migration from v2
 
-## Migration from v2.x
-
-The v3.0.0 API is fully backward compatible with v2.0.0. New additions:
+The one-shot and planning calls from v2 still compile:
 
 ```c
-// v2.0.0 API (still works)
 fft_auto(signal, signal, n, -1);
 fft_plan_t plan = fft_plan_dft_1d(n, signal, signal, -1, FFT_MEASURE);
-
-// New v3.0.0 additions
-fft_plan_t r2c = fft_plan_r2c_1d(n, real_in, complex_out, FFT_ESTIMATE);
-fft_plan_t c2r = fft_plan_c2r_1d(n, complex_in, real_out, FFT_ESTIMATE);
-fft_plan_t fft2 = fft_plan_dft_2d(rows, cols, in, out, -1, FFT_ESTIMATE);
-
-char* wisdom = fft_export_wisdom_to_string();
-fft_import_wisdom_from_string(wisdom);
 ```
 
-## Acknowledgments
+Four v2 flags were removed because nothing implemented them: `FFT_PATIENT`,
+`FFT_EXHAUSTIVE`, `FFT_UNALIGNED` and `FFT_THREADED`. If your code passed one
+of them, delete it.
 
-- Original FFT algorithm by Cooley and Tukey
-- Inspired by FFTW's planning approach
-- GPU implementations based on cuFFT and Metal Performance Shaders
-- Community contributors and testers
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
 
 ---
 
-**Note**: This is a high-performance library suitable for production use. For educational purposes, explore the `algorithms/core/` directory for well-documented implementations.
-
-<div align="center">
-
-## Star History
-
-<a href="https://www.star-history.com/#muditbhargava66/FFT-implementation-in-C&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=muditbhargava66/FFT-implementation-in-C&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=muditbhargava66/FFT-implementation-in-C&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=muditbhargava66/FFT-implementation-in-C&type=Date" />
- </picture>
-</a>
-
----  
-
-⭐️ Star the repo and consider contributing!  
-  
-**Contact**: [@muditbhargava66](https://github.com/muditbhargava66)
-**Report Issues**: [Issue Tracker](https://github.com/muditbhargava66/FFT-implementation-in-C/issues)
-[Documentation](https://fft-implementation-in-c.readthedocs.io/)
-[Discussions](https://github.com/muditbhargava66/FFT-implementation-in-C/discussions)
-  
-© 2024-2026 Mudit Bhargava. [Apache License 2.0](LICENSE)  
-</div>
+Copyright 2024-2026 Mudit Bhargava.

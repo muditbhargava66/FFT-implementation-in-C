@@ -4,14 +4,8 @@
 /**
  * Music Pitch Detection using FFT
  * 
- * Demonstrates pitch detection algorithms using FFT,
- * including harmonic product spectrum and autocorrelation.
- * 
- * Applications:
- * - Musical tuners
- * - Pitch correction
- * - Music transcription
- * - Voice analysis
+ * Compares peak picking, harmonic product spectrum and autocorrelation on
+ * synthetic tones and a chord.
  */
 
 // Musical note frequencies (A4 = 440 Hz)
@@ -242,10 +236,10 @@ pitch_result_t detect_pitch_with_confidence(complex_t* signal, int n, double sam
     // Method 3: Autocorrelation
     double pitch3 = detect_pitch_autocorr(signal, n, sample_rate);
     
-    /* Prefer the estimates two methods agree on, and prefer autocorrelation
-     * when it agrees with the spectral peak: its lag grid is finer than the FFT
-     * bin spacing. HPS is not trusted alone; on a pure tone it has no harmonic
-     * series to find and previously won with a leakage product. */
+    /* Prefer estimates two methods agree on, and prefer autocorrelation when
+     * it agrees with the spectral peak: its lag grid is finer than the FFT bin
+     * spacing. HPS is not trusted alone; on a pure tone it has no harmonic
+     * series to work with. */
     double chosen;
     if (pitches_agree(pitch1, pitch3)) {
         chosen = pitch3;

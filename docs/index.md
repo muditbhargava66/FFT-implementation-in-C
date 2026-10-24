@@ -1,144 +1,101 @@
-# FFT Implementation in C Documentation
+# FFT Implementation in C
 
-Welcome to the comprehensive documentation for the FFT Implementation in C project. This repository provides educational and production-ready implementations of various Fast Fourier Transform algorithms.
-
-## Overview
-
-The Fast Fourier Transform (FFT) is one of the most important algorithms in digital signal processing, enabling efficient computation of the Discrete Fourier Transform (DFT). This project provides:
-
-- **Multiple Algorithm Implementations**: From basic to advanced FFT algorithms
-- **Real-World Applications**: Audio processing, filtering, and more
-- **Measured Algorithm Selection**: kernel choice backed by recorded cost ratios,
-  with an optional timing sweep and a reusable wisdom cache
-- **Educational Resources**: Detailed explanations and diagrams
-
-## Features
-
-### Core Algorithms
-- **Radix-2 (DIT/DIF)**: The classic Cooley-Tukey algorithms
-- **Radix-4**: Higher radix for better performance
-- **Split-Radix**: Optimal operation count
-- **Bluestein**: Arbitrary size FFTs
-- **Mixed-Radix**: Composite size optimization
-
-### Planning
-- **`FFT_ESTIMATE`**: pick by the size heuristic, no timing
-- **`FFT_MEASURE`**: time the candidates that accept this length and keep the
-  fastest, then cache the decision
-- **`FFT_WISDOM_ONLY`**: use a cached decision or fail to plan; never measures.
-  Useful for latency-bounded callers that would rather get `NULL` than pay for a
-  timing sweep
-- **`fft_plan_algorithm_name()`**: report what a plan actually selected
-- Wisdom exports to and imports from a text string, so a decision survives a
-  process restart
-
-### What this library does not do
-There is no SIMD, threaded, fixed-point or GPU execution path. Earlier revisions
-of these docs listed SSE2/AVX kernels, a pthreads/OpenMP stage splitter and a
-Q15 path; those files were compiled into the library but declared in no header
-and called by nothing, so no plan could reach them. They have been deleted rather
-than left as unreachable objects. See the Changelog.
-
-### Applications
-- Audio spectrum analysis with beautiful Unicode displays
-- Digital signal filtering
-- Fast convolution
-- Image processing
-- Power spectrum computation
-
-### Platform status
-- **1361/1361 checks passing**, verified against an independent direct DFT
-- **Supported compilers**: GCC and Clang, on Linux, macOS and Windows
-  (MinGW-w64 or clang). MSVC's `cl.exe` cannot build this library: it needs C11
-  `_Complex` arithmetic, which it does not provide
-- **CMake build** — simple `cmake -S . -B build && cmake --build build`
-- **Not thread-safe**: selection and the wisdom cache use shared globals without
-  locking
-- **GPU code does not execute**: in a default build every `fft_gpu_*` symbol
-  resolves to `utils/fft_gpu_stubs.c`, where `fft_gpu_available()` returns 0.
-  Configuring with `-DFFT_ENABLE_GPU=ON` compiles the CUDA objects without
-  connecting them to the planner. No GPU result in this repository has been
-  measured on hardware
-
-## Quick Navigation
-
-- **[Getting Started](getting-started.md)**: Installation and first steps
-- **[Algorithm Guide](algorithms.md)**: Detailed algorithm explanations
-- **[API Reference](api-reference.md)**: Complete function documentation
-- **[Applications](applications.md)**: Real-world usage examples
-- **[Performance Guide](performance.md)**: Benchmarks and optimization tips
-- **[Optimizations](optimizations.md)**: v3.0.0 performance improvements and techniques
-- **[Security Policy](https://github.com/muditbhargava66/FFT-implementation-in-C/blob/main/SECURITY.md)**:
-  private vulnerability reporting and scope
-
-## Mathematical Background
-
-The Discrete Fourier Transform of a sequence $x[n]$ is defined as:
-
-$$X[k] = \sum_{n=0}^{N-1} x[n] \cdot e^{-j2\pi kn/N}$$
-
-The FFT algorithms reduce the computational complexity from $O(N^2)$ to $O(N \log N)$ by exploiting symmetries in the twiddle factors.
-
-## Code Example
+A C11 FFT library with eight algorithm implementations, a planning API, and
+algorithm selection based on measured cost. It builds with GCC and Clang on
+Linux, macOS and Windows (MinGW-w64). MSVC is not supported.
 
 ```c
-#include "fft_common.h"
-#include "fft_algorithms.h"
+#include <fft_auto.h>
 
-int main() {
+int main(void) {
     int n = 1024;
-    complex_t* signal = allocate_complex_array(n);
-    
-    // Generate a test signal
-    double fs = 1000.0;  // Sampling frequency
-    for (int i = 0; i < n; i++) {
-        signal[i] = sin(2 * PI * 50 * i / fs);  // 50 Hz sine wave
-    }
-    
-    // Apply FFT
-    radix2_dit_fft(signal, n, FFT_FORWARD);
-    
-    // Process spectrum...
-    double* magnitude = compute_magnitude(signal, n);
-    
-    // Clean up
-    free(magnitude);
-    free_complex_array(signal);
+    complex_t *signal = fft_alloc_complex(n);
+    for (int i = 0; i < n; i++)
+        signal[i] = sin(2 * PI * 50 * i / 1000.0);
+
+    fft_auto(signal, signal, n, FFT_FORWARD);
+    fft_free(signal);
     return 0;
 }
 ```
 
-## Project Structure
+## What the library provides
+
+**Kernels:** radix-2 DIT, radix-2 DIF, radix-4, split-radix, Bluestein,
+mixed-radix, recursive radix-2, and naive/optimized DFT references.
+
+**Planning:** one-shot calls and reusable plans for 1-D complex, real-to-complex,
+complex-to-real and 2-D transforms. The planner chooses by transform size, or by
+timing the candidates when `FFT_MEASURE` is set. A wisdom cache can save and
+restore those choices.
+
+**Errors:** every transform returns `fft_error_t` and leaves the caller's buffer
+untouched when it fails. The library never exits the process.
+
+## What it does not do
+
+- No SIMD, threaded or fixed-point kernels.
+- No GPU execution. The CUDA and Metal sources are outside the default build;
+  `fft_gpu_*` resolves to CPU stubs and `fft_gpu_available()` returns 0.
+- Not thread-safe. Algorithm selection and the wisdom cache use global state.
+- 2-D transforms require power-of-two dimensions.
+
+## Build
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The library is `build/lib/libfft_lib_c.a`; the test and benchmark binaries are
+in `build/bin`. See [Getting Started](getting-started.md) for platform-specific
+notes and [Windows Support](windows.md) for MinGW details.
+
+## Verification
+
+The suite compares every implementation against a direct DFT computed
+independently inside the test file, over 30 sizes from 1 to 16384. Release
+3.0.0 was measured on Windows 11 with MinGW-w64 GCC 13.2.0: 1361/1361 checks,
+no compiler warnings, and 52 passed / 0 failed / 2 skipped benchmark rows. The
+same build and samples were re-run on Ubuntu 24.04 (GCC 13.3.0, Clang 18.1.3)
+and macOS 27 arm64 (Apple Clang 21.0.0, Homebrew GCC 16.2.0) with the same
+counts. Details are in [Performance](performance.md).
+
+## Documentation
+
+- [Getting Started](getting-started.md)
+- [Quick Start](quickstart.md)
+- [Algorithm Guide](algorithms.md)
+- [Applications](applications.md)
+- [API Reference](api-reference.md)
+- [Performance Guide](performance.md)
+- [Optimizations](optimizations.md)
+- [Security Policy](https://github.com/muditbhargava66/FFT-implementation-in-C/blob/main/SECURITY.md)
+
+## Project structure
 
 ```
-FFT-implementation-in-C/
-├── include/          # Public headers
-├── algorithms/       # Core FFT implementations (core/, dft/, auto/)
-├── utils/            # Shared helpers, window functions, GPU stubs
-├── applications/     # Real-world applications
-├── benchmarks/       # Performance testing
-├── tests/            # Test suite (test_all.c)
-├── gpu/              # CUDA and Metal sources, outside the default build
-├── cmake/            # CMake package configuration
-├── docs/             # Documentation
-├── .github/          # CI, Dependabot, issue and pull-request templates
-├── SECURITY.md       # Private vulnerability reporting policy
-└── CONTRIBUTING.md   # Contribution and review workflow
+include/        public headers
+algorithms/     kernels and planner (core/, dft/, auto/)
+utils/          window functions, helpers, GPU stubs
+applications/   runnable demos
+benchmarks/     benchmark_all and gpu_benchmark
+tests/          test_all.c
+gpu/            CUDA and Metal sources, not in the default build
+docs/           this site
 ```
 
-There is no `optimizations/` directory and no `examples/` directory. The former
-held unreachable SIMD, threading and fixed-point kernels and was deleted; the
-example programs live in `applications/`.
+## Background
 
-## Why This Project?
+The DFT is
 
-This project serves multiple purposes:
+$$X[k] = \sum_{n=0}^{N-1} x[n]\, e^{-j2\pi kn/N},$$
 
-1. **Educational Resource**: Learn FFT algorithms with clear, documented code
-2. **Reference Implementation**: Production-quality code with proper error handling
-3. **Performance Comparison**: Benchmark different algorithms
-4. **Practical Examples**: See FFT used in real applications
+and the FFT factors it into $O(N\log N)$ operations by reusing twiddle
+factors. The [Algorithm Guide](algorithms.md) describes the decompositions used
+here and when each one is worth choosing.
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE](https://github.com/muditbhargava66/FFT-implementation-in-C/blob/main/LICENSE) for details.
+Apache License 2.0. See [LICENSE](https://github.com/muditbhargava66/FFT-implementation-in-C/blob/main/LICENSE).

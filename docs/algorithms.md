@@ -1,245 +1,131 @@
-# FFT Algorithms Overview
+# FFT Algorithms
 
-This guide provides an overview of all FFT algorithms implemented in this project, their characteristics, and when to use each one.
+## Comparison
 
-## Algorithm Comparison
+| Algorithm | Complexity | Length | Notes |
+| --- | --- | --- | --- |
+| Radix-2 DIT | O(N log N) | power of 2 | in-place, no scratch |
+| Radix-2 DIF | O(N log N) | power of 2 | same cost as DIT here |
+| Radix-4 | O(N log N) | power of 2 | faster from N=512 up |
+| Split-Radix | O(N log N) | power of 2 | fewest multiplications, slowest of the three in wall time |
+| Bluestein | O(N log N) | any | about 9N complex scratch |
+| Mixed-Radix | O(N log N) | any | recursive Cooley-Tukey for composite lengths; direct DFT at a prime |
+| Recursive | O(N log N) | power of 2 | clear structure, not the fastest |
+| Naive DFT | O(N²) | any | reference |
+| Optimized DFT | O(N²) | any | reference with twiddle reuse |
 
-| Algorithm | Complexity | Size Requirement | Best Use Case |
-|-----------|------------|------------------|---------------|
-| Radix-2 DIT | O(N log N) | Power of 2 | General purpose, industry standard |
-| Radix-2 DIF | O(N log N) | Power of 2 | Hardware implementations |
-| Radix-4 | O(N log N) | Power of 2 | Reduced operations vs Radix-2 |
-| Split-Radix | O(N log N) | Power of 2 | Minimum operation count |
-| Bluestein | O(N log N) | Any size | Non-power-of-2 sizes |
-| Mixed-Radix | O(N log N) | Composite | Efficient for specific sizes |
-| Recursive | O(N log N) | Power of 2 | Educational, clear structure |
-| Naive DFT | O(N²) | Any size | Reference, small sizes |
+## Radix-2 DIT
 
-## Core Algorithms
+The standard Cooley-Tukey decomposition into even and odd samples:
 
-### Radix-2 Decimation-in-Time (DIT)
+$$X[k] = \sum_{n=0}^{N/2-1} x[2n]\,W_N^{2nk}
+      + W_N^k \sum_{n=0}^{N/2-1} x[2n+1]\,W_N^{2nk}.$$
 
-The most common FFT algorithm, implementing the Cooley-Tukey approach.
+The kernel permutes the input into bit-reversed order and then runs
+log₂N butterfly stages in place. It allocates no scratch and is the reference
+column in the performance tables.
 
-**Key Features:**
-- In-place computation
-- Bit-reversal permutation
-- Butterfly operations
-- Well-suited for vectorization
-
-**Mathematical Foundation:**
-The DFT is decomposed into even and odd indexed samples:
-
-$$X[k] = \sum_{n=0}^{N/2-1} x[2n] W_N^{2nk} + W_N^k \sum_{n=0}^{N/2-1} x[2n+1] W_N^{2nk}$$
-
-**Usage:**
 ```c
 radix2_dit_fft(signal, n, FFT_FORWARD);
 ```
 
-### Radix-2 Decimation-in-Frequency (DIF)
+## Radix-2 DIF
 
-Alternative formulation that decimates in the frequency domain.
+Decimation in frequency. The butterflies run in the opposite order and the
+bit-reversal permutation is applied at the end. Its measured cost is the same as
+DIT at every size tested, so choose between them for the data layout, not for
+speed.
 
-**Key Features:**
-- Reversed butterfly structure compared to DIT
-- No bit-reversal needed at output for some applications
-- Natural for hardware pipelines
-
-**Usage:**
 ```c
 radix2_dif_fft(signal, n, FFT_FORWARD);
 ```
 
-### Radix-4 FFT
+## Radix-4
 
-Processes 4 samples at a time, reducing the number of stages.
+Four-way decomposition. It accepts any power of two and uses one leading radix-2
+stage when `log2(n)` is odd.
 
-**Key Features:**
-- 25% fewer complex multiplications than Radix-2
-- Works for any power of 2 (one leading radix-2 stage for odd powers)
-- True radix-4 butterflies; twiddles advance multiplicatively per stage
-- Costs an O(n) digit-reversal buffer, which is why `FFT_CONSERVE_MEMORY`
-  selects in-place radix-2 DIT instead
+$$X[k] = \sum_{r=0}^{3} W_N^{rk} \sum_{n=0}^{N/4-1} x[4n+r]\,W_{N/4}^{nk}.$$
 
-**Mathematical Basis:**
-Decomposes DFT into 4 interleaved subsequences:
+Twiddles advance multiplicatively per stage. The digit-reversal permutation
+needs an O(n) buffer, which is why radix-4 loses to radix-2 below 512 despite
+doing fewer multiplications per stage.
 
-$$X[k] = \sum_{r=0}^{3} W_N^{rk} \sum_{n=0}^{N/4-1} x[4n+r] W_{N/4}^{nk}$$
-
-**Usage:**
 ```c
 radix4_fft(signal, n, FFT_FORWARD);
 ```
 
-### Split-Radix FFT
+## Split-radix
 
-Combines Radix-2 and Radix-4 decompositions optimally.
+Combines radix-2 and radix-4 decompositions: one `n/2` subtransform and two
+`n/4` subtransforms per level. It has the lowest multiplication count of the
+power-of-two kernels, but this implementation moves about 2.5n elements per
+level and measures 1.6-2.9x slower than radix-2 DIT. It allocates a scratch
+pool; it does not run in place.
 
-**Key Features:**
-- Lowest operation count among power-of-2 algorithms
-- About 33% fewer multiplications than Radix-2
-- More complex implementation
-
-**Usage:**
 ```c
 split_radix_fft(signal, n, FFT_FORWARD);
 ```
 
-### Bluestein's Algorithm (Chirp Z-Transform)
+## Bluestein
 
-Computes FFT for arbitrary sizes using convolution.
+Reformulates the DFT as a convolution so any length can use power-of-two
+transforms:
 
-**Key Features:**
-- Works for any size (not just powers of 2)
-- Uses convolution theorem
-- Higher memory requirements
+$$X[k] = W_N^{k^2/2} \sum_{n=0}^{N-1}
+        \left(x[n]\,W_N^{n^2/2}\right) W_N^{-(k-n)^2/2}.$$
 
-**Mathematical Approach:**
-Reformulates DFT as convolution:
+The convolution is padded to `next_power_of_two(2n-1)`, which is roughly 4n,
+and three transforms of that length are run. That is why it costs about 10x a
+radix kernel at a power-of-two length, and why it still wins for lengths where
+mixed-radix has no factor to use.
 
-$$X[k] = W_N^{k^2/2} \sum_{n=0}^{N-1} (x[n] W_N^{n^2/2}) W_N^{-(k-n)^2/2}$$
-
-**Usage:**
 ```c
-bluestein_fft(signal, n, FFT_FORWARD);  // n can be any size
+bluestein_fft(signal, n, FFT_FORWARD);   /* any n up to 2^29 */
 ```
 
-### Mixed-Radix FFT
+## Mixed-radix
 
-Handles composite sizes by factoring into smaller DFTs.
+Recursive Cooley-Tukey using the smallest prime factor at each step. Prime
+leaves fall back to a direct DFT. The planner chooses it for lengths that
+factor into 2, 3, 5 and 7 when `FFT_CONSERVE_MEMORY` is set.
 
-**Key Features:**
-- Efficient for highly composite numbers
-- Good for sizes like 12, 24, 36, etc.
-- Recursive decomposition
-
-**Usage:**
 ```c
-mixed_radix_fft(signal, n, FFT_FORWARD);  // n = product of small primes
+mixed_radix_fft(signal, n, FFT_FORWARD);
 ```
 
-## Algorithm Selection Guide
+Measured against Bluestein it is slower at every non-power-of-two length tested
+(2.1x at N=360, 241x at N=1021). It remains the right choice when memory is the
+constraint; pass `FFT_CONSERVE_MEMORY` to the planner.
 
-The recommendations below follow the measurements in the
-[Performance Guide](performance.md), not the operation counts. Where the two
-disagree, the measurements are the ones that describe what you will observe.
+## Choosing a kernel
 
-### For Power-of-2 Sizes
+The planner uses these rules by default (`FFT_ESTIMATE`):
 
-1. **General Purpose**: Use Radix-2 DIT
-   - Well-tested and understood
-   - In-place, no scratch allocation
-   - The reference column every other kernel is measured against; nothing beats
-     it by more than ~17% and only radix-4 does so above 256
+- Power-of-two lengths below 512: radix-2 DIT.
+- Power-of-two lengths from 512 up: radix-4.
+- Non-power-of-two lengths that factor into small primes: Bluestein, unless
+  `FFT_CONSERVE_MEMORY` selects mixed-radix.
+- Other non-power-of-two lengths: Bluestein.
 
-2. **Fewer Multiplications**: Split-Radix, if you need the count rather than the
-   time
-   - About a third fewer complex multiplications than radix-2
-   - **1.6-2.9x slower in wall time**, because the recursion moves roughly 2.5n
-     elements per level and memory traffic, not flops, is the constraint
-   - It also cannot run in place, so it allocates 6n complex numbers
+`FFT_MEASURE` times the candidates instead of using the rules, then caches the
+result. It is worth using when a program plans once and executes many times.
 
-3. **Hardware/FPGA**: Consider Radix-2 DIF or Radix-4
-   - Better pipeline structure
-   - Reduced memory access patterns
+`FFT_CONSERVE_MEMORY` takes precedence over measurement and selects in-place or
+low-scratch kernels.
 
-### For Arbitrary Sizes
+## Memory and stability
 
-1. **Prime Sizes**: Use Bluestein
-   - The only O(N log N) option here: mixed-radix has no factor to split on and
-     falls back to a direct O(N²) DFT, measured 241x slower at N=1021
-   - Costs roughly 9N complex numbers of scratch
+- Radix-2 DIT and DIF are in place.
+- Radix-4 allocates an O(n) digit-reversal buffer.
+- Split-radix allocates a scratch pool.
+- Bluestein allocates roughly 9n complex numbers.
+- Mixed-radix allocates O(n) scratch for its recursion.
 
-2. **Composite Sizes**: Still Bluestein, unless memory is the binding constraint
-   - Measured faster than mixed-radix at every composite length tried: 2.1x at
-     N=360, 3.2x at N=1000, 6.0x at N=4095
-   - Mixed-radix is the right call when the 2N padding Bluestein needs does not
-     fit; pass `FFT_CONSERVE_MEMORY` and the planner selects it for lengths that
-     factor into 2, 3, 5 and 7
-   - The same flag keeps power-of-two lengths on in-place radix-2 DIT instead of
-     radix-4, whose digit-reversal permutation allocates an O(n) scratch buffer
+All kernels use double-precision complex arithmetic and are compared against an
+independent direct DFT in `tests/test_all.c`. Bluestein accumulates somewhat
+more round-off than a single radix kernel because it runs three transforms of
+about 4n, which the test tolerance accounts for.
 
-3. **Small Sizes**: Radix-2 DIT still wins
-   - Naive DFT is not competitive at any size: measured 32x slower than radix-2
-     DIT at N=8, rising to 498x at N=128, because it evaluates a complex
-     exponential per term
-   - `optimized_dft` precomputes or accumulates its twiddles and does pull ahead
-     of naive DFT from N=64 (15x radix-2, where naive is 261x), but it is still
-     15-25x behind radix-2 throughout
-   - Use the DFTs as references for checking the FFTs, which is what the test
-     suite does
-
-## Performance Characteristics
-
-### Memory Access Patterns
-
-- **Radix-2**: Good locality in later stages
-- **Radix-4**: Fewer passes through data
-- **Split-Radix**: Complex access pattern
-- **Bluestein**: Requires additional workspace
-
-### Parallelization Potential
-
-How well each algorithm *would* parallelise, if a threaded kernel existed. None
-does today — see `docs/optimizations.md`.
-
-- **High**: Radix-2 (independent butterflies)
-- **Medium**: Radix-4, Split-Radix
-- **Low**: Recursive implementations
-
-### Numerical Stability
-
-All algorithms are numerically stable, but:
-- Radix-2 has well-understood error propagation
-- Bluestein may accumulate more rounding errors, because it runs three transforms
-  of about 4n instead of one of n
-- A fixed-point implementation would need careful scaling, but there is no
-  fixed-point path in this library
-
-## Implementation Details
-
-### Common Optimizations
-
-1. **Twiddle Factor Optimization**
-   ```c
-   // Optimized twiddle factor computation with special cases
-   static inline complex_t twiddle_factor(int k, int n, fft_direction dir) {
-       // Fast paths for common angles
-       if (k == 0) return 1.0;
-       if (k * 4 == n) return (dir == FFT_FORWARD) ? -I : I;  // ±j
-       if (k * 2 == n) return -1.0;  // -1
-       
-       double angle = dir * TWO_PI * k / n;
-       return cexp(I * angle);
-   }
-   ```
-
-2. **Bit Reversal Optimization**
-   - A four-stage swap network for `log2n <= 8`, a shift-and-accumulate loop
-     above that. No lookup table and no SIMD — it is plain integer bit
-     manipulation
-
-3. **Compiler Optimization Hints**
-   ```c
-   // Branch prediction hints
-   #define LIKELY(x)   __builtin_expect(!!(x), 1)
-   #define UNLIKELY(x) __builtin_expect(!!(x), 0)
-   
-   // Force inlining for critical functions
-   #define FORCE_INLINE __attribute__((always_inline)) inline
-   ```
-
-4. **Memory Management**
-   - Proper error checking and validation
-   - Cache-optimized memory access patterns
-   - Aligned allocation (64-byte from `fft_alloc_complex`, 32-byte from
-     `allocate_complex_array` on Windows), which helps cache-line and page
-     behaviour; there is no SIMD path that would need it
-
-## Next Steps
-
-- Explore individual algorithm pages for detailed explanations
-- Run benchmarks to compare performance on your hardware
-- Check the [API Reference](api-reference.md) for function details
-- See [Applications](applications.md) for practical usage examples
+There is no fixed-point path. There is no SIMD or threaded kernel; the
+`docs/optimizations.md` page lists what would be required to add one.

@@ -5,12 +5,12 @@
 #include <stdlib.h>
 
 /**
- * Comprehensive Test Suite for FFT Implementations
+ * FFT Test Suite
  *
- * Correctness is established by comparing every implementation against an
- * independent direct DFT computed here (sharing no code with the library),
- * plus algebraic property tests. The reference comparison is what catches
- * ordering and twiddle-index defects that property tests cannot see.
+ * Each implementation is compared against a direct DFT computed here, sharing
+ * no code with the library, plus algebraic property tests. The reference
+ * comparison catches ordering and twiddle-index defects that property tests
+ * cannot see.
  */
 
 /* ---------- configuration ---------- */
@@ -381,9 +381,9 @@ static void test_bit_reverse_network(void) {
 }
 
 /*
- * log2_int() used to spin forever on negative input: an arithmetic right
- * shift of a negative value never becomes zero. A hang here shows up as this
- * process being killed by the harness timeout, which is the point.
+ * log2_int() must not loop on negative input: an arithmetic right shift of a
+ * negative value never becomes zero. A regression here hangs the process, which
+ * the harness timeout catches.
  */
 static void test_index_helpers(void) {
   printf("\n=== index/size helpers ===\n");
@@ -479,13 +479,8 @@ static void test_plan_api(test_config_t *config) {
   fill_random(src, n, 4242u);
 
   /*
-   * The planning-strength flags used to be the consecutive values 1, 2, 3, 4.
-   * Because they are OR-combined and tested with `flags & FFT_MEASURE`, that
-   * made FFT_EXHAUSTIVE also mean FFT_MEASURE. Every surviving flag must
-   * therefore be a single distinct bit. FFT_PATIENT, FFT_EXHAUSTIVE,
-   * FFT_UNALIGNED and FFT_THREADED are gone from the enum entirely rather than
-   * left as accepted-and-ignored no-ops, and their bit positions stay unused so
-   * exported wisdom does not change meaning.
+   * The flags are OR-combined and tested with `flags & FFT_MEASURE`, so each
+   * must be a single distinct bit and no two may alias.
    */
   {
     static const unsigned planning_flags[] = {
@@ -724,6 +719,9 @@ static void test_plan_api(test_config_t *config) {
 
       fft_plan_t p = fft_plan_r2c_1d(rn, rin, cout, FFT_ESTIMATE);
       ok = ok && p != NULL && fft_execute(p) == FFT_OK;
+      /* A real plan has no complex in/out pair to substitute; execute_dft
+       * must refuse rather than transform the arrays it was planned with. */
+      ok = ok && fft_execute_dft(p, cout, cout) == FFT_ERR_SIZE;
       fft_destroy_plan(p);
 
       ok = ok && rel_err(cout[0], (double)rn) < 1e-12;
@@ -733,6 +731,7 @@ static void test_plan_api(test_config_t *config) {
       for (int k = 1; k <= rn / 2; k++) cout[k] = 0.0;
       p = fft_plan_c2r_1d(rn, cout, rout, FFT_ESTIMATE);
       ok = ok && p != NULL && fft_execute(p) == FFT_OK;
+      ok = ok && fft_execute_dft(p, cout, cout) == FFT_ERR_SIZE;
       fft_destroy_plan(p);
 
       for (int i = 0; i < rn && ok; i++)
@@ -763,6 +762,14 @@ static void test_plan_api(test_config_t *config) {
       complex_t sum = 0.0;
       for (int i = 0; i < total; i++) sum += gin[i];
       ok = ok && rel_err(gout[0], sum) < tol_for(config, total);
+
+      /* Both passes are chosen at planning time. Replacing the wisdom cache
+       * must not change what an existing plan executes, and a grid whose
+       * element count overflows int is rejected before allocating. */
+      fft_import_wisdom_from_string("# FFT Wisdom v3.0.0 (0 entries)\n");
+      ok = ok && fft_execute(p) == FFT_OK;
+      ok = ok && fft_plan_dft_2d(65536, 65536, gout, gout, -1,
+                                 FFT_ESTIMATE) == NULL;
       fft_destroy_plan(p);
 
       report("plan api", "2-D transform", ok, 0.0, NULL);

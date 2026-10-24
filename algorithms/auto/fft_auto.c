@@ -1,24 +1,15 @@
 #include "../../include/fft_auto.h"
 #include "../../include/fft_algorithms.h"
 #include "../../include/fft_gpu.h"
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 /**
  * @file fft_auto.c
- * @brief Automatic FFT algorithm selection and planning (v3.0.0)
- *
- * This module provides intelligent algorithm selection based on:
- * - Transform size and factorization
- * - Hardware capabilities
- * - Memory constraints
- * - Performance measurements
+ * @brief Planner, algorithm selection, wisdom cache, real and 2-D paths.
  */
 
 /* Algorithm identifiers used both in plans and in the wisdom cache */
@@ -55,6 +46,7 @@ struct fft_plan {
   fft_direction dir; /* Transform direction */
   unsigned flags;    /* Planning flags */
   enum fft_algo algorithm;
+  enum fft_algo col_algorithm; /* 2-D column pass only */
 
   /* Optional real-data pointers (r2c / c2r) */
   double *real_in;   /* non-NULL for r2c plans */
@@ -75,7 +67,6 @@ struct fft_plan {
 
 // Global state
 static unsigned g_hardware_caps = 0;
-static int g_num_threads = 0;
 static int g_hardware_detected = 0;
 
 // Detect hardware capabilities
@@ -216,53 +207,16 @@ static enum fft_algo select_algorithm(int n, unsigned flags) {
       return ALGO_GPU_MPS;
   }
 
-  /* CPU algorithms, chosen from measurement rather than from folklore about
-   * which radix is "best". Each cell is that kernel's time divided by radix-2
-   * DIT's at the same n, so below 1.00 is faster. i7-9750H, MinGW-w64 GCC
-   * 13.2.0, -O3 without -march=native; minimum of interleaved batches sized to
-   * clear the clock, with the buffer restored from a seed before every rep.
-   *
-   *          radix-2 DIF  radix-4  split-radix  Bluestein   (mixed-radix)
-   *   n=16      1.06        1.41      1.64        11.11      (0.99)
-   *   n=64      1.06        1.21      2.44        11.30      (1.02)
-   *   n=256     1.00        1.10      2.38        11.90      (0.99)
-   *   n=512     0.95        0.83      2.00        10.34      (1.01)
-   *   n=1024    0.97        0.97      2.30        11.41      (1.04)
-   *   n=4096    1.02        0.89      1.99         9.54      (1.03)
-   *   n=16384   1.00        0.93      2.86         9.68      (1.01)
-   *
-   * Ratios, not milliseconds, because absolute times here are not reproducible:
-   * three runs of one probe put radix-2 DIT at n=16384 at 0.501, 1.372 and
-   * 1.433 ms, a 2.9x spread for identical code.
-   *
-   * The parenthesised column is the control. mixed_radix_fft() forwards
-   * power-of-two lengths straight to radix2_dit_fft(), so it must read 1.00, and
-   * it comes out 0.99-1.04. That is the resolution of the whole method, so any
-   * difference smaller than it is not measurable on this machine.
-   *
-   * Split-radix is reproducibly 1.6-2.9x slower despite ~20% fewer flops,
-   * because its recursion moves ~2.5n elements per level. Bluestein pads to
-   * 2n-1, so using it where a radix kernel applies costs about 10x.
-   */
+  /* The size rules come from the ratios in docs/performance.md: radix-4 loses
+   * to radix-2 DIT at 16 and 64, ties at 256, and wins from 512 up, so 256 is
+   * the crossover. Bluestein won every non-power-of-two length measured, but
+   * needs about 9n complex numbers of scratch against mixed-radix's n. */
   if (is_power_of_two(n)) {
-    /* Radix-4 is 1.41x and 1.21x behind radix-2 DIT at 16 and 64 and 0.83-0.93x
-     * of it at every length from 512 up; 256 is the crossover. Below it radix-4
-     * pays for its O(n) digit-reversal buffer without recovering the flops. */
-    if (flags & FFT_CONSERVE_MEMORY) {
-      /* Radix-4 permutes through an O(n) scratch array; radix-2 DIT is in
-       * place. When the caller asked to save memory, the few percent radix-4
-       * buys above 256 is not theirs to spend. */
+    if (flags & FFT_CONSERVE_MEMORY)
       return ALGO_RADIX2_DIT;
-    }
     return (n <= 256) ? ALGO_RADIX2_DIT : ALGO_RADIX4;
   }
 
-  /* Non-power-of-two. Bluestein was measured faster than mixed-radix at every
-   * length tried — 2.1x at 360, 3.2x at 1000, 24x at 97, 241x at 1021 — because
-   * mixed-radix has no factors to divide by once a length is prime and falls
-   * back to a direct O(n^2) DFT. Mixed-radix stays available for callers that
-   * trade time for memory: Bluestein pads to next_power_of_two(2n-1) and holds
-   * two such buffers, roughly 9n complex numbers, against mixed-radix's n. */
   if ((flags & FFT_CONSERVE_MEMORY) && is_highly_composite(n))
     return ALGO_MIXED_RADIX;
   return ALGO_BLUESTEIN;
@@ -307,31 +261,23 @@ static void wisdom_store(int n, unsigned flags, enum fft_algo algo) {
 }
 
 /*
- * Run one batch of `*reps` transforms and return the per-transform time in
- * milliseconds, growing the batch until the clock can actually see it.
- *
- * clock() advances about once a millisecond on Windows, so a single 256-point
- * transform measures as 0.000 ms and every candidate would tie at zero, leaving
- * the ranking to be decided by the order they were tried in. The batch size is
- * therefore scaled up until the measured interval clears the target.
- *
- * *reps persists across calls so later rounds reuse the calibrated size.
+ * Return the per-transform time of one batch in milliseconds, growing the batch
+ * until clock() can resolve it. On Windows the clock advances about once a
+ * millisecond, so a single small transform would measure as 0.000 ms and leave
+ * the ranking to list order. *reps persists so later rounds reuse the size.
  */
 static double time_batch(enum fft_algo algo, complex_t *scratch,
                          const complex_t *seed, int n, int *reps) {
-  const double target_ticks = 60.0; /* ~60 ms per batch on Windows */
+  /* 20 ms in clock ticks. A literal tick count is not portable: CLOCKS_PER_SEC
+   * is 1000 on Windows and 1000000 on POSIX. */
+  const double target_ticks = 0.020 * (double)CLOCKS_PER_SEC;
   const int max_reps = 2000000;
 
   for (;;) {
     clock_t start = clock();
     for (int r = 0; r < *reps; r++) {
-      /* A forward transform scales its input by n, so re-transforming one buffer
-       * in place overflows it to Inf and then NaN within a few dozen reps. That
-       * is not the work being planned for, and it measured about 2x slower than
-       * finite data at n=16384, which was enough to invert the ranking between
-       * radix-2 DIT and radix-4. Restoring the seed each rep puts the copy
-       * inside the timed region, but every candidate pays the same O(n) copy
-       * against its own O(n log n) transform. */
+      /* A forward transform scales by n, so replaying one buffer climbs to
+       * Inf/NaN and times the wrong work. Restore the seed each rep. */
       memcpy(scratch, seed, (size_t)n * sizeof(complex_t));
       execute_1d(scratch, n, FFT_FORWARD, algo);
     }
@@ -353,18 +299,11 @@ static double time_batch(enum fft_algo algo, complex_t *scratch,
 }
 
 /*
- * Confirm a challenge to the default algorithm by running the two contenders in
- * alternating batches and comparing them round by round.
- *
- * A sweep over all candidates once is not decisive here: the power-of-two
- * kernels sit within a few percent of each other, and drift during the sweep
- * (clock frequency, other processes) was measured to exceed that — which is how
- * a first run picked radix-2 DIT at 4096 and a second picked radix-4. Sampling
- * the pair alternately puts both at the same moments, so drift moves them
- * together and only a consistent difference survives.
- *
- * Returns 1 when the challenger is faster in all but one of the rounds and
- * faster overall by more than `margin`.
+ * Compare a challenger and the incumbent in alternating batches. The power-of-
+ * two kernels are within a few percent of each other, and clock drift over a
+ * one-pass sweep is larger than that. Alternating puts both at the same
+ * moments. Returns 1 if the challenger wins all but one round and is faster by
+ * more than `margin` overall.
  */
 static int confirm_choice(enum fft_algo challenger, enum fft_algo incumbent,
                           complex_t *scratch, const complex_t *seed, int n) {
@@ -388,21 +327,10 @@ static int confirm_choice(enum fft_algo challenger, enum fft_algo incumbent,
 }
 
 /*
- * Time the CPU algorithms that accept length n and return the fastest.
- *
- * Runs against a private scratch buffer: an FFT overwrites its input, so
- * measuring on the caller's array would destroy the signal being planned for.
- *
- * Each candidate is sampled TRIALS times and its minimum kept — the minimum
- * discards scheduler interference instead of averaging it in — and the rounds
- * are interleaved between candidates so every algorithm is sampled at the same
- * moments. Without interleaving, a clock-frequency change partway through the
- * sweep decides the ranking: the kernels here differ by under 10% and one such
- * drift measured larger than that.
- *
- * default_algo is the size heuristic's answer. It wins ties, and a measured
- * challenger has to beat it by more than the run-to-run noise and then repeat
- * that under confirm_choice() before it is selected.
+ * Time the CPU algorithms that accept length n. Each is sampled three times
+ * with the minimum kept, and the samples are interleaved so clock drift moves
+ * all candidates together. `default_algo` is the heuristic's answer; a
+ * challenger must also survive confirm_choice() before it is used.
  */
 static enum fft_algo measure_best_algorithm(int n, enum fft_algo default_algo) {
   static const enum fft_algo cpu_algorithms[] = {
@@ -489,31 +417,18 @@ static enum fft_algo measure_best_algorithm(int n, enum fft_algo default_algo) {
 }
 
 /*
- * The planner's entry point: cached result if there is one, otherwise the size
- * heuristic, upgraded to a measured choice when the caller passed FFT_MEASURE.
- * Whatever is decided is cached, so a plan built twice for the same (n, flags)
- * costs nothing the second time.
- *
- * Returns ALGO_COUNT -- the "no algorithm" sentinel -- when FFT_WISDOM_ONLY was
- * requested and no usable choice is cached. fft_plan_dft_1d turns that into a
- * NULL plan.
+ * Cached choice if there is one, otherwise the size heuristic, optionally
+ * upgraded by FFT_MEASURE. Returns ALGO_COUNT when FFT_WISDOM_ONLY was
+ * requested and no usable entry exists.
  */
 static enum fft_algo choose_algorithm(int n, unsigned flags) {
-  /* FFT_WISDOM_ONLY is masked out of the cache key. Leaving it in would mean a
-   * choice cached for FFT_MEASURE could never be found by a caller asking for
-   * FFT_MEASURE|FFT_WISDOM_ONLY, which is the only combination the flag is
-   * useful in: measure once, then reuse the decision without re-measuring. */
+  /* Mask FFT_WISDOM_ONLY out of the key so a decision cached under
+   * FFT_MEASURE can be found by FFT_MEASURE | FFT_WISDOM_ONLY. */
   const unsigned key = flags & ~(unsigned)FFT_WISDOM_ONLY;
 
   enum fft_algo cached;
-  /* A cache entry is not necessarily this process's own decision: it can come
-   * from fft_import_wisdom_from_string(). Validate it before believing it.
-   * Without this an entry pairing, say, radix-4 with a prime length becomes a
-   * plan that fails every execute, and a GPU entry imported on a machine with
-   * no GPU becomes a plan whose execute reports FFT_OK without transforming
-   * anything, because the GPU dispatch is compiled out. An unusable entry is
-   * treated as a miss: FFT_WISDOM_ONLY fails closed, and an ordinary plan
-   * overwrites it at the end of this function. */
+  /* Imported entries are untrusted: check that the algorithm can handle this
+   * size and is available here. A bad entry is a cache miss. */
   if (wisdom_lookup(n, key, &cached) && algorithm_handles_size(cached, n) &&
       algorithm_available(cached))
     return cached;
@@ -523,9 +438,7 @@ static enum fft_algo choose_algorithm(int n, unsigned flags) {
 
   enum fft_algo algo = select_algorithm(n, flags);
 
-  /* FFT_CONSERVE_MEMORY is a constraint, not a tie-breaker that measurement may
-   * overrule: the faster kernels at these sizes are precisely the ones that
-   * allocate an O(n) scratch array or pad the working set to 2n-1. */
+  /* Memory is a constraint, not a tie-breaker for measurement. */
   if ((flags & FFT_MEASURE) && !(flags & FFT_CONSERVE_MEMORY) &&
       algo != ALGO_GPU_CUDA && algo != ALGO_GPU_MPS) {
     enum fft_algo timed = measure_best_algorithm(n, algo);
@@ -558,25 +471,14 @@ fft_plan_t fft_plan_dft_1d(int n, complex_t *in, complex_t *out, int sign,
   // Select algorithm, consulting and refilling the wisdom cache.
   plan->algorithm = choose_algorithm(n, flags);
 
-  /* A plan with no algorithm cannot execute: execute_1d() returns
-   * FFT_ERR_SIZE for the ALGO_COUNT sentinel. Returning it anyway would hand
-   * the caller a non-NULL plan that fails on every use, which reads as a
-   * runtime fault rather than what it is -- a rejected plan. This is reachable
-   * through FFT_WISDOM_ONLY on a cold cache. Nothing but `plan` itself has been
-   * allocated at this point, so a plain free is the whole cleanup. */
+  /* ALGO_COUNT means FFT_WISDOM_ONLY found no entry. Return NULL rather than a
+   * plan that fails on every execute. */
   if (plan->algorithm == ALGO_COUNT) {
     free(plan);
     return NULL;
   }
 
   // Allocate per-algorithm resources.
-  //
-  // The CPU kernels used to have a twiddle table and a bit-reversal table
-  // built here, but no kernel ever read them: every implementation computes
-  // its own twiddles as it runs. Building them cost O(n) cexp() calls and two
-  // allocations per plan for nothing, so they are gone; a plan that wants to
-  // amortise precomputation across executions needs kernels that accept a
-  // table, which is a larger change than deleting this.
   switch (plan->algorithm) {
   case ALGO_RADIX2_DIT:
   case ALGO_RADIX2_DIF:
@@ -661,27 +563,34 @@ fft_error_t fft_execute(fft_plan_t plan) {
     int cols = plan->cols;
     complex_t *buf = plan->out;
 
+    /* Allocate the transpose buffer before touching either data buffer, so a
+     * failed allocation leaves the caller's data alone. */
+    complex_t *tmp = allocate_complex_array(rows * cols);
+    if (!tmp) return FFT_ERR_ALLOC;
+
     if (plan->in != plan->out)
       memcpy(buf, plan->in, (size_t)rows * cols * sizeof(complex_t));
 
     /* Row-wise FFTs */
     for (int r = 0; r < rows; r++) {
       fft_error_t err = execute_1d(&buf[r * cols], cols, plan->dir, plan->algorithm);
-      if (err) return err;
+      if (err) {
+        free_complex_array(tmp);
+        return err;
+      }
     }
 
     /* Transpose into a temp buffer */
-    complex_t *tmp = allocate_complex_array(rows * cols);
-    if (!tmp) return FFT_ERR_ALLOC;
     for (int r = 0; r < rows; r++)
       for (int c = 0; c < cols; c++)
         tmp[c * rows + r] = buf[r * cols + c];
 
-    /* Column-wise FFTs (now contiguous after transpose). The column length is
-     * a different size from the planned one, so it gets its own cached choice. */
-    enum fft_algo col_algo = choose_algorithm(rows, plan->flags);
+    /* Column-wise FFTs (now contiguous after transpose). The column length
+     * was planned separately and stored, so execution does not consult the
+     * wisdom cache again. */
     for (int c = 0; c < cols; c++) {
-      fft_error_t err = execute_1d(&tmp[c * rows], rows, plan->dir, col_algo);
+      fft_error_t err =
+          execute_1d(&tmp[c * rows], rows, plan->dir, plan->col_algorithm);
       if (err) {
         free_complex_array(tmp);
         return err;
@@ -719,6 +628,12 @@ fft_error_t fft_execute(fft_plan_t plan) {
 fft_error_t fft_execute_dft(fft_plan_t plan, complex_t *in, complex_t *out) {
   if (!plan || !in || !out)
     return FFT_ERR_NULL;
+
+  /* Real-input/output plans bind a double* at planning time and have no
+   * complex in/out pair to substitute. Reject the call instead of quietly
+   * transforming the buffers the plan was created with. */
+  if (plan->real_in || plan->real_out)
+    return FFT_ERR_SIZE;
 
   // Temporarily swap arrays
   complex_t *old_in = plan->in;
@@ -779,16 +694,6 @@ const char *fft_plan_algorithm_name(fft_plan_t plan) {
 unsigned fft_get_hardware_capabilities(void) {
   detect_hardware();
   return g_hardware_caps;
-}
-
-// Thread control
-void fft_plan_with_nthreads(int nthreads) {
-  g_num_threads = nthreads;
-#ifdef _OPENMP
-  if (nthreads > 0) {
-    omp_set_num_threads(nthreads);
-  }
-#endif
 }
 
 // Aligned memory allocation
@@ -891,10 +796,10 @@ fft_plan_t fft_plan_dft_2d(int rows, int cols, complex_t *in, complex_t *out,
                            int sign, unsigned flags) {
   if (rows <= 0 || cols <= 0 || !in || !out)
     return NULL;
-  if (!is_power_of_two(rows) || !is_power_of_two(cols)) {
-    fprintf(stderr, "fft_plan_dft_2d: rows and cols must be powers of 2\n");
+  if ((long long)rows * cols > INT_MAX)
     return NULL;
-  }
+  if (!is_power_of_two(rows) || !is_power_of_two(cols))
+    return NULL;
 
   detect_hardware();
 
@@ -910,14 +815,12 @@ fft_plan_t fft_plan_dft_2d(int rows, int cols, complex_t *in, complex_t *out,
   plan->dir = (sign < 0) ? FFT_FORWARD : FFT_INVERSE;
   plan->flags = flags;
   plan->algorithm = choose_algorithm(cols, flags); /* per-row algo */
+  plan->col_algorithm = choose_algorithm(rows, flags);
 
-  /* The column pass runs at execute time on a length chosen separately, so
-   * validate it here too. Under FFT_WISDOM_ONLY a plan that only checked `cols`
-   * would be handed back and then fail partway through execution, which is the
-   * same unusable-plan defect as in fft_plan_dft_1d. For every other flag this
-   * is a no-op: choose_algorithm only returns the sentinel on a wisdom miss. */
-  if (plan->algorithm == ALGO_COUNT ||
-      choose_algorithm(rows, flags) == ALGO_COUNT) {
+  /* Under FFT_WISDOM_ONLY a missing entry makes choose_algorithm() return the
+   * ALGO_COUNT sentinel. Reject the plan now rather than failing partway
+   * through execution. */
+  if (plan->algorithm == ALGO_COUNT || plan->col_algorithm == ALGO_COUNT) {
     free(plan);
     return NULL;
   }

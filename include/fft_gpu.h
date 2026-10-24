@@ -5,9 +5,10 @@
 
 /**
  * @file fft_gpu.h
- * @brief GPU acceleration for FFT (CUDA and Metal Performance Shaders)
- * 
- * New in v2.0.0, enhanced in v3.0.0: GPU support for massive performance gains
+ * @brief GPU interface (CUDA and Metal)
+ *
+ * The GPU sources are outside the default build and are not connected to the
+ * planner. In a default build every fft_gpu_* symbol resolves to a CPU stub.
  */
 
 // GPU backend selection

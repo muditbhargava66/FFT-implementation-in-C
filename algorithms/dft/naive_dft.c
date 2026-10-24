@@ -378,11 +378,10 @@ int main() {
     /* Summary */
     printf("\n\nAlgorithm Characteristics:\n");
     printf("=========================\n");
-    printf("✓ Works for any input size\n");
-    printf("✓ Numerically stable\n");
-    printf("✓ Simple to understand and implement\n");
-    printf("✗ O(n²) complexity makes it impractical for large n\n");
-    printf("✓ Excellent for verification and small datasets\n");
+    printf("- Works for any length\n");
+    printf("- Direct evaluation of the DFT definition\n");
+    printf("- O(n^2): a reference, not a production transform\n");
+    printf("- Used by the test suite as an independent check\n");
     
     /* Clean up */
     free_complex_array(signal);

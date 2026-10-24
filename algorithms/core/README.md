@@ -65,6 +65,7 @@ This directory contains implementations of fundamental FFT algorithms.
 
 ```c
 #include "fft_common.h"
+#include "fft_algorithms.h"
 
 int main() {
     int n = 1024;
@@ -99,12 +100,10 @@ cmake --build build
 ```
 
 Each file also contains a demonstration `main()` guarded by `#ifndef LIB_BUILD`.
-To run one individually, compile that file directly (without `LIB_BUILD`):
-
-```bash
-gcc -O2 -std=c11 -Iinclude algorithms/core/radix4.c utils/fft_utils.c -lm -o radix4
-./radix4
-```
+Those demos are not self-contained: `radix4.c`, for example, calls
+`radix2_dit_fft()` from `radix2_dit.c`, and compiling both files together gives
+two `main()` functions. They are not built as standalone programs; use
+`test_all` or `benchmark_all` instead.
 
 ## Testing
 

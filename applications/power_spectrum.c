@@ -1,21 +1,11 @@
 #include "fft_common.h"
 #include "fft_algorithms.h"
 
-/* apply_window_* come from utils/window_functions.c and are declared in
- * fft_common.h; local copies here duplicated the symbols. */
-
 /**
  * Power Spectrum Analysis
  * 
- * Implements various spectral analysis techniques for signal processing
- * and communications applications.
- * 
- * Features:
- * - Power Spectral Density (PSD) estimation
- * - Welch's method for improved estimates
- * - Autocorrelation via FFT
- * - Cross-correlation and coherence
- * - Spectral statistics
+ * PSD estimation (periodogram, Welch), autocorrelation, cross-correlation
+ * and coherence, with a summary of spectral statistics.
  */
 
 // PSD estimation methods

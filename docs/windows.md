@@ -1,14 +1,15 @@
 # Windows Support
 
 How to build and test this library on Windows, and what is actually verified
-there. Current release: **3.0.0 (23 October 2026)**.
+there. Current release: **3.1.0 (24 October 2026)**.
 
 ## What works
 
 | Toolchain | Status |
 | --------- | ------ |
-| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified** — 1361/1361 checks pass, no compiler warnings, on Windows 11 x86_64 with GCC 13.2.0 |
-| clang / clang-cl | Expected to work; not verified here |
+| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified** — 1361/1361 checks, no compiler warnings locally with GCC 13.2.0; CI with GCC 16.2.0 |
+| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI** — Clang 23.1.3, tests, benchmarks and demos pass |
+| clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
 
 ### Why `cl.exe` is excluded
@@ -31,9 +32,7 @@ native type there — it offers `_Dcomplex` structures and function forms such a
 Making MSVC work would mean rewriting all eight algorithms against those helper
 calls. Until that is done, `CMakeLists.txt` fails at configure time with this
 explanation, and `include/fft_common.h` repeats it as an `#error`, rather than
-producing hundreds of unhelpful diagnostics halfway through the build. An
-earlier revision carried a `#ifdef _MSC_VER` branch that typedef'd `_Dcomplex`
-and included `<complex>` — a C++ header — so it could not compile either.
+producing hundreds of diagnostics halfway through the build.
 
 ## Build
 
@@ -73,13 +72,11 @@ this limit together.
 ## GPU support
 
 Not available on a Windows build. The CUDA sources under `gpu/` are outside the
-default build, and the dispatch layer that would call them is not wired up —
+default build, and the dispatch layer that would call them is not wired up:
 every `fft_gpu_*` symbol resolves to `utils/fft_gpu_stubs.c`, so
 `fft_gpu_available()` returns 0 and `FFT_PREFER_GPU` falls back to a CPU
-algorithm. Earlier revisions of this page listed a `-DENABLE_CUDA=ON` option
-that has never existed in `CMakeLists.txt`; the real option is
-`FFT_ENABLE_GPU`, and turning it on compiles the kernels without connecting
-them.
+algorithm. The real option is `FFT_ENABLE_GPU`, and turning it on compiles the
+kernels without connecting them.
 
 ## Troubleshooting
 

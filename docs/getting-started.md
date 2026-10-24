@@ -1,257 +1,169 @@
 # Getting Started
 
-This guide will help you get started with the FFT Implementation in C project.
-
 ## Prerequisites
 
-Before building the project, ensure you have the following installed:
-
-- **C Compiler**: GCC 4.8+ or Clang 3.4+, with C11 `complex.h` and `_Complex`.
-  MSVC's `cl.exe` is not supported; CMake stops with an explanation if it is
-  selected. On Windows use MinGW-w64 or clang.
-- **CMake**: 3.10+
-- **Math Library**: Standard C math library (libm)
-
-### Platform-Specific Notes
+- A C11 compiler with `_Complex` support: GCC 4.8+ or Clang 3.4+. On Windows,
+  use MinGW-w64 or clang; MSVC's `cl.exe` is rejected at configure time because
+  it has no C11 `_Complex` arithmetic.
+- CMake 3.20 or newer.
+- The C math library (`libm` on Linux; macOS resolves these functions from its
+  C runtime).
 
 === "Linux"
+
     ```bash
-    # Install build essentials
-    sudo apt-get update
-    sudo apt-get install build-essential
-    ```
-
-=== "macOS"
-    ```bash
-    # Install Xcode Command Line Tools
-    xcode-select --install
-    ```
-
-=== "Windows"
-    ```cmd
-    # CMake Build
-    cmake -S . -B build
-    cmake --build build
-    ```
-
-    Tested with MinGW-w64 GCC 13.2.0: 1361/1361 checks pass with no compiler
-    warnings.
-
-    **Prerequisites**:
-    - MinGW-w64 (or clang). Visual Studio's `cl.exe` cannot build this library —
-      it requires C11 `_Complex` arithmetic that MSVC does not provide, and CMake
-      stops with that explanation if `cl.exe` is the selected C compiler
-    - CMake 3.10+
-    - Git for Windows
-    
-=== "Windows (WSL)"
-    ```bash
-    # In WSL terminal
     sudo apt-get update
     sudo apt-get install build-essential cmake
     ```
 
-## Installation
+=== "macOS"
 
-### 1. Clone the Repository
+    ```bash
+    xcode-select --install
+    ```
+
+    CMake is available from Homebrew (`brew install cmake`) or from cmake.org.
+
+=== "Windows"
+
+    Install MinGW-w64 and CMake, and run the build from an MSYS2/MinGW shell or
+    with `-DCMAKE_C_COMPILER` pointing at `gcc.exe`. See
+    [Windows Support](windows.md).
+
+=== "Windows (WSL)"
+
+    ```bash
+    sudo apt-get update
+    sudo apt-get install build-essential cmake
+    ```
+
+## Build and test
 
 ```bash
 git clone https://github.com/muditbhargava66/FFT-implementation-in-C.git
 cd FFT-implementation-in-C
-```
 
-### 2. Build with CMake
-
-The project uses CMake for cross-platform builds:
-
-```bash
-# Configure
 cmake -S . -B build
-
-# Build
-cmake --build build --config Release
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-### 3. Run Tests
+`ctest` runs `build/bin/test_all`, which prints a summary line. A successful run
+ends with `1361/1361 checks passed`.
+
+To choose a compiler, pass it at configure time:
 
 ```bash
-cd build/bin
-./test_all
+cmake -S . -B build -DCMAKE_C_COMPILER=clang
+cmake --build build
 ```
 
-## First Program
+The default build uses `-O3`. `-march=native` is opt-in with
+`-DFFT_NATIVE_ARCH=ON`; see [Optimizations](optimizations.md) for when that is a
+good idea.
 
-Create a simple program to test the FFT:
+## First program
 
 ```c
-// my_first_fft.c
+/* my_first_fft.c */
 #include <stdio.h>
 #include "fft_common.h"
 #include "fft_algorithms.h"
 
-int main() {
-    // Create a simple signal
+int main(void) {
     int n = 8;
-    complex_t* signal = allocate_complex_array(n);
-    
-    // Initialize with a simple pattern
-    for (int i = 0; i < n; i++) {
-        signal[i] = (i < n/2) ? 1.0 : -1.0;
-    }
-    
-    printf("Input signal:\n");
+    complex_t *signal = allocate_complex_array(n);
+    if (!signal) return 1;
+
+    for (int i = 0; i < n; i++)
+        signal[i] = (i < n / 2) ? 1.0 : -1.0;
+
     print_complex_array("x", signal, n);
-    
-    // Perform FFT
     radix2_dit_fft(signal, n, FFT_FORWARD);
-    
-    printf("\nFFT result:\n");
     print_complex_array("X", signal, n);
-    
-    // Compute magnitude spectrum
-    double* mag = compute_magnitude(signal, n);
-    printf("\nMagnitude spectrum:\n");
-    for (int i = 0; i < n; i++) {
+
+    double *mag = compute_magnitude(signal, n);
+    for (int i = 0; i < n; i++)
         printf("|X[%d]| = %.3f\n", i, mag[i]);
-    }
-    
-    // Clean up
+
     free(mag);
     free_complex_array(signal);
-    
     return 0;
 }
 ```
 
-Compile and run:
+Compile it against the built library:
 
 ```bash
 gcc -I./include my_first_fft.c -L./build/lib -lfft_lib_c -lm -o my_first_fft
 ./my_first_fft
 ```
 
-## Using the Library
+On Windows the library file is `libfft_lib_c.a` as well; use the same command
+from a MinGW shell.
 
-### Linking with Your Project
+## Linking from your own project
 
-To use the FFT library in your own project:
+```bash
+gcc -I/path/to/include your_program.c \
+    -L/path/to/build/lib -lfft_lib_c -lm
+```
 
-1. Include the headers:
-   ```c
-   #include "fft_common.h"
-   #include "fft_algorithms.h"
-   ```
+If you are using CMake, link the `fft_lib` target. There is no installed CMake
+package configuration; add the source directory with `add_subdirectory()` or
+link the static library and include directory directly.
 
-2. Link with the library:
-   ```bash
-   gcc -I/path/to/include your_program.c -L/path/to/build/lib -lfft_lib_c -lm
-   ```
-
-### Basic Usage Pattern
+## Basic pattern
 
 ```c
-// 1. Allocate memory
-complex_t* data = allocate_complex_array(size);
-
-// 2. Fill with your data
-generate_signal(data, size);
-
-// 3. Apply FFT
-radix2_dit_fft(data, size, FFT_FORWARD);
-
-// 4. Process results
-process_spectrum(data, size);
-
-// 5. Optional: Inverse transform
-radix2_dit_fft(data, size, FFT_INVERSE);
-
-// 6. Clean up
+complex_t *data = allocate_complex_array(n);
+/* fill data */
+if (radix2_dit_fft(data, n, FFT_FORWARD) != FFT_OK) {
+    /* handle a null buffer or an invalid length */
+}
+/* read the spectrum */
 free_complex_array(data);
 ```
 
-## Directory Structure
+Every transform returns `fft_error_t`. If it fails after it has started, the
+buffer may be partly modified, so do not use the result. Discarding the return
+value is allowed in C, but checking it is the only way to tell a failed
+transform from a successful one.
 
-After building, you'll find:
-
-- `build/lib/`: the static library (`libfft_lib_c.a` with GCC/Clang)
-- `build/bin/`: `test_all`, `benchmark_all`, and the `applications/` demos
-
-## Common Issues and Solutions
-
-### Issue: Power of 2 Requirement
-
-Most FFT algorithms require input sizes to be powers of 2. Use:
+For repeated transforms of the same size, the planning API avoids re-deciding
+the algorithm on every call:
 
 ```c
-// Check if size is power of 2
-if (!is_power_of_two(n)) {
-    // Use Bluestein or Mixed-Radix for arbitrary sizes
-    bluestein_fft(data, n, FFT_FORWARD);
+fft_plan_t plan = fft_plan_dft_1d(n, data, data, -1, FFT_ESTIMATE);
+for (int i = 0; i < iterations; i++) {
+    fill_signal(data, n);
+    fft_execute(plan);
+    consume(data, n);
 }
+fft_destroy_plan(plan);
 ```
 
-### Issue: Compilation Warnings
+## Directory layout after building
 
-The build compiles with `-Wall -Wextra` and is warning-clean, so any warning is
-a real finding rather than expected noise. CI fails the build on the first one.
+- `build/lib/libfft_lib_c.a`: the static library
+- `build/bin/`: `test_all`, `benchmark_all`, `gpu_benchmark`, and the
+  `applications/` demos
 
-## IDE Integration
+## Common problems
 
-### Visual Studio Code
+**Size rejected by radix-2 or radix-4.** Those kernels require a power of two.
+Use Bluestein for an arbitrary length, or let `fft_auto()` choose.
 
-1. Install extensions:
-   - C/C++
-   - CMake Tools
-   - CUDA (if using GPU)
+**Undefined references to `cexp`, `cabs` or `sincos`.** Add `-lm` on Linux.
+The CMake targets already do this through the library target.
 
-2. Configure `.vscode/settings.json`:
-   ```json
-   {
-       "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
-       "C_Cpp.default.includePath": [
-           "${workspaceFolder}/include",
-           "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include"
-       ]
-   }
-   ```
+**A warning appears during the build.** The project compiles with `-Wall
+-Wextra` and is warning-clean on the compilers listed in the README. Treat a new
+warning as something to investigate rather than expected noise.
 
-### Visual Studio Code (Windows)
+## Next steps
 
-Point the C/C++ extension at a MinGW-w64 or clang compiler as above. Visual
-Studio's own `cl.exe` toolset cannot compile this library — see
-[Prerequisites](#prerequisites).
-
-## Performance Optimization
-
-### Compiler Optimizations
-
-The default build is already `-O3`. Two things worth knowing before adding flags:
-
-```bash
-# Tune for the CPU you are building on. Off by default: the binaries will not
-# run on older CPUs, and MinGW-w64 GCC emits misaligned 32-byte AVX stack stores
-# under it that crash some programs intermittently. See the comment above the
-# FFT_NATIVE_ARCH option in CMakeLists.txt.
-cmake -S . -B build -DFFT_NATIVE_ARCH=ON
-cmake --build build --config Release
-```
-
-Do **not** add `-ffast-math`. It permits the compiler to reassociate the
-butterfly sums and to assume no value is ever NaN or Inf, both of which are
-load-bearing assumptions for an FFT; it trades correctness for a speedup this
-library is not memory-bound enough to need.
-
-### Windows-Specific Optimizations
-
-1. **Disable Windows Defender real-time scanning** for the build directory
-2. **Set high performance power plan**
-3. **Use SSD** for faster compilation
-4. **Increase RAM** if building large projects
-
-## Next Steps
-
-- Explore the [Algorithm Guide](algorithms.md) to understand different FFT implementations
-- Check out [Applications](applications.md) for real-world examples
-- Review the [API Reference](api-reference.md) for detailed function documentation
-- Run benchmarks to compare performance: `./bin/benchmark_all`
-- For Windows users: See [Windows Support](windows.md) for detailed Windows-specific information
+- [Quick Start](quickstart.md) for a shorter tour
+- [Algorithm Guide](algorithms.md) for the decompositions and their trade-offs
+- [Applications](applications.md) for the runnable demos
+- [API Reference](api-reference.md) for the full surface

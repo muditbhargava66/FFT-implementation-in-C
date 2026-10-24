@@ -3,14 +3,10 @@
 #include <float.h>
 
 /**
- * Comprehensive FFT Benchmark Suite
- * 
- * Compares performance and accuracy of all FFT implementations
- * in the repository. Measures:
- * - Execution time
- * - Accuracy vs reference
- * - Memory usage
- * - Scalability
+ * FFT Benchmark Suite
+ *
+ * Compares execution time and accuracy against a reference DFT for every
+ * implementation in the library.
  */
 
 // FFT implementation function pointer
@@ -38,34 +34,28 @@ typedef struct {
     int passed;
 } benchmark_result_t;
 
-// The implementations are declared by fft_algorithms.h; a local `extern` list
-// here previously duplicated those prototypes and drifted out of date.
-
-// List of implementations to benchmark
+// List of implementations to benchmark. The prototypes live in
+// fft_algorithms.h; do not redeclare them here.
 fft_impl_t implementations[] = {
     {"Radix-2 DIT", radix2_dit_fft, radix2_dit_fft, 1, 2, 65536},
     {"Radix-2 DIF", radix2_dif_fft, radix2_dif_fft, 1, 2, 65536},
     {"Radix-4", radix4_fft, radix4_fft, 1, 4, 65536},
     {"Split-Radix", split_radix_fft, split_radix_fft, 1, 2, 65536},
-    {"Bluestein", bluestein_fft, bluestein_fft, 0, 2, 65536},      // Increased from 4096
-    {"Mixed-Radix", mixed_radix_fft, mixed_radix_fft, 0, 2, 65536}, // Increased from 4096
-    {"Recursive", fft_recursive, fft_recursive, 1, 2, 65536},       // Increased from 8192
-    {"Naive DFT", naive_dft, naive_dft, 0, 2, 4096},      // O(n^2): 14 s at n=16384, so it is capped
-    {"Optimized DFT", optimized_dft, optimized_dft, 0, 2, 4096}   // O(n^2) as well
+    {"Bluestein", bluestein_fft, bluestein_fft, 0, 2, 65536},
+    {"Mixed-Radix", mixed_radix_fft, mixed_radix_fft, 0, 2, 65536},
+    {"Recursive", fft_recursive, fft_recursive, 1, 2, 65536},
+    {"Naive DFT", naive_dft, naive_dft, 0, 2, 4096},
+    {"Optimized DFT", optimized_dft, optimized_dft, 0, 2, 4096}
 };
 
 int num_implementations = sizeof(implementations) / sizeof(implementations[0]);
 
 /*
- * The reference DFT is O(n^2): 14.3 s at n=16384 on this machine. It used to be
- * recomputed inside run_single_benchmark(), i.e. once per implementation, which
- * made the size-16384 block alone cost 9 x 14.3 s = 129 s and the whole suite
- * several minutes. It is now computed once per size in main().
- *
- * Above MAX_REF_BINS the reference is evaluated on an evenly spaced sample of
- * bins rather than all n. Which bins the DFT definition pins down does not
- * depend on the bin index, so a spread sample catches indexing and twiddle
- * errors just as well as all n bins, at 1/128th of the cost.
+ * The reference DFT is O(n^2), so it is computed once per size in main()
+ * rather than once per implementation. Above MAX_REF_BINS it is evaluated on
+ * an evenly spaced sample of bins; the DFT definition does not depend on which
+ * bin index is checked, so a spread sample catches indexing and twiddle errors
+ * at a fraction of the cost.
  */
 #define MAX_REF_BINS 128
 
@@ -288,8 +278,7 @@ void analyze_best_implementations(benchmark_result_t* results, int num_results) 
     printf("\n\nBest Implementations by Size:\n");
     printf("=============================\n");
 
-    // Sizes are taken from the results themselves; a hardcoded copy of main()'s
-    // test_sizes[] here used to silently print nothing whenever the two drifted.
+    // Sizes come from the results themselves; do not keep a second copy.
     for (int i = 0; i < num_results; i++) {
         int size = results[i].size;
 
@@ -459,9 +448,8 @@ int main() {
         printf("Passed: 0\nFailed: 0\nSkipped: 0\n");
     }
 
-    // Notes. Which algorithm is fastest at each size is measured above and
-    // varies with the host CPU, so it is deliberately not hardcoded here; this
-    // section used to assert a fixed ranking that the suite had just contradicted.
+    // The fastest algorithm per size is measured above and varies with the
+    // host CPU, so it is not asserted here.
     printf("\n\nNotes:\n");
     printf("======\n");
     printf("- Read the fastest implementation per size from 'Best Implementations by Size' above.\n");

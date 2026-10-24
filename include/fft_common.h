@@ -28,23 +28,10 @@
     #include <malloc.h>  // For _aligned_malloc on Windows
 #endif
 
-/* Every transform here is written against C11 complex arithmetic: `x[i] =
- * x[j] * w`, `a += b`, `x /= n`. That needs the _Complex keyword and the
- * operator overloading the standard defines for it.
- *
- * The Microsoft C compiler has a complex.h (cexp, cabs, _Dcomplex, _Cbuild) but
- * no _Complex keyword, and Microsoft's own documentation is explicit that "the
- * complex math library functions are NOT overloaded with the +, -, *, and /
- * operators" because complex numbers are not a native type there. Supporting
- * cl.exe in C mode would therefore mean rewriting every kernel against
- * _Cmulcc/_Caddcc-style helpers.
- *
- * The branch that used to sit here did neither: it included <complex>, which is
- * a C++ header, and typedef'd _Dcomplex, so it could not compile either. It is
- * replaced by this diagnostic rather than a half-written emulation that no one
- * can test, because MSVC builds are only reachable from a machine with Visual
- * Studio installed. On Windows, build with MinGW-w64 gcc or clang, both of
- * which the CMake configuration supports. */
+/* Every transform uses C11 complex arithmetic (`x[i] = x[j] * w`, `a += b`,
+ * `x /= n`), which requires the _Complex keyword. The MSVC C compiler provides
+ * complex.h structures and functions but not the operators, so cl.exe cannot
+ * build this library. Use MinGW-w64 gcc or clang on Windows. */
 #if defined(_MSC_VER) && !defined(__clang__)
 #error This library requires C11 _Complex arithmetic, which the MSVC C compiler does not provide. Use MinGW-w64 gcc or clang on Windows.
 #endif
@@ -84,7 +71,8 @@ typedef enum {
     FFT_ERR_NULL = -1,      /* null buffer */
     FFT_ERR_SIZE = -2,      /* length invalid for this algorithm */
     FFT_ERR_ALLOC = -3,     /* allocation failed */
-    FFT_ERR_RANGE = -4      /* argument out of supported range */
+    FFT_ERR_RANGE = -4,     /* argument out of supported range */
+    FFT_ERR_UNSUPPORTED = -5 /* operation not supported by this plan */
 } fft_error_t;
 
 /* Validate a required power-of-two length from inside a function returning
@@ -139,11 +127,11 @@ static inline unsigned int bit_reverse(unsigned int x, int log2n) {
     return r;
 }
 
-// Memory allocation helpers with alignment for SIMD
+// Memory allocation helpers
 static inline complex_t* allocate_complex_array(int n) {
     if (n <= 0) return NULL;
 #ifdef _WIN32
-    // Use aligned allocation on Windows for better SIMD performance
+    /* 32-byte alignment on Windows; ordinary calloc elsewhere. */
     void* ptr = _aligned_malloc((size_t)n * sizeof(complex_t), 32);
     if (ptr) {
         memset(ptr, 0, (size_t)n * sizeof(complex_t));
@@ -193,12 +181,8 @@ static inline void timer_stop(fft_timer_t* timer) {
 }
 
 /*
- * Abort-on-error helper for STANDALONE PROGRAMS only. It calls exit(), which is
- * never acceptable inside the library; library code returns fft_error_t via
- * FFT_REQUIRE_POW2 instead. Its one remaining user is applications/image_fft.c.
- * The matching CHECK_NULL was removed once the library helpers it guarded began
- * returning NULL/fft_error_t: a header macro that kills the host process is not
- * something a library should export.
+ * Abort-on-error helper for standalone programs only. Library code uses
+ * FFT_REQUIRE_POW2, which returns FFT_ERR_SIZE. Used by image_fft.c.
  */
 #define CHECK_POWER_OF_TWO(n) \
     if (!is_power_of_two(n)) { \

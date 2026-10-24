@@ -7,7 +7,7 @@
  * @file fft_auto.h
  * @brief Automatic FFT algorithm selection and planning
  * 
- * v3.0.0: Simplified API with automatic optimization, r2c/c2r FFTs, 2D FFT, wisdom cache
+ * v3: Simplified API with automatic optimization, r2c/c2r FFTs, 2D FFT, wisdom cache
  */
 
 // FFT Planner - automatically selects best algorithm
@@ -15,15 +15,8 @@ typedef struct fft_plan* fft_plan_t;
 
 // Execution hints for optimization.
 //
-// These are OR-combined, so each one needs its own bit. FFT_MEASURE and
-// FFT_WISDOM_ONLY used to be the consecutive values 1 and 4 alongside two
-// others, which meant a flag whose value was 0b11 also read as FFT_MEASURE
-// (0b01) in every `flags & FFT_MEASURE` test. They are numbered as bits now.
-//
-// The gaps below are deliberate. FFT_PATIENT, FFT_EXHAUSTIVE, FFT_UNALIGNED and
-// FFT_THREADED were removed because nothing implemented them, but the retained
-// flags keep their existing bit values so exported wisdom and compiled callers
-// do not silently change meaning. Do not renumber to close the gaps.
+// These are OR-combined, so each one needs its own bit. The gaps are retained
+// so exported wisdom keeps its meaning if a flag is ever restored.
 typedef enum {
     FFT_ESTIMATE    = 0,     // Quick planning: pick by the size heuristic
     FFT_MEASURE     = 1<<0,  // Time the candidate algorithms and keep the fastest
@@ -34,7 +27,7 @@ typedef enum {
     FFT_PREFER_GPU  = 1<<9   // Use GPU if available
 } fft_flags_t;
 
-// Main API Functions (v3.0.0)
+// Main API Functions (v3)
 
 /**
  * @brief Create an FFT plan with automatic algorithm selection
@@ -61,12 +54,18 @@ fft_plan_t fft_plan_dft_1d(int n, complex_t* in, complex_t* out,
 fft_error_t fft_execute(fft_plan_t plan);
 
 /**
- * @brief Execute plan with different arrays
- * 
+ * @brief Execute plan with different complex arrays
+ *
+ * Complex 1-D and 2-D plans only. Real-to-complex and complex-to-real plans
+ * keep their real buffer from planning time, so this returns
+ * FFT_ERR_UNSUPPORTED for them rather than transforming the arrays the plan
+ * was created with.
+ *
  * @param plan The FFT plan
  * @param in New input array
  * @param out New output array
- * @return FFT_OK, or FFT_ERR_NULL if plan/in/out is null
+ * @return FFT_OK, FFT_ERR_NULL if any argument is null, or
+ *         FFT_ERR_UNSUPPORTED for a real-valued plan
  */
 fft_error_t fft_execute_dft(fft_plan_t plan, complex_t* in, complex_t* out);
 
@@ -91,7 +90,7 @@ const char* fft_plan_algorithm_name(fft_plan_t plan);
 // Simplified one-shot interface
 
 /**
- * @brief Perform FFT with automatic optimization (v3.0.0)
+ * @brief Perform FFT with automatic optimization (v3)
  * 
  * Automatically selects the best algorithm based on:
  * - Transform size
@@ -132,7 +131,9 @@ fft_plan_t fft_plan_c2r_1d(int n, complex_t* in, double* out, unsigned flags);
 
 /**
  * @brief Plan for 2D complex FFT
- * 
+ *
+ * Both dimensions must be powers of two; the planner returns NULL otherwise.
+ *
  * @param rows Number of rows
  * @param cols Number of columns
  * @param in Input array (row-major order)
@@ -184,7 +185,6 @@ typedef enum {
     FFT_HW_CPU_SSE    = 1<<0,
     FFT_HW_CPU_AVX    = 1<<1,
     FFT_HW_CPU_AVX2   = 1<<2,
-    FFT_HW_CPU_AVX512 = 1<<3,
     FFT_HW_CPU_NEON   = 1<<4,
     FFT_HW_GPU_CUDA   = 1<<5,
     FFT_HW_GPU_MPS    = 1<<6,
@@ -192,14 +192,6 @@ typedef enum {
 } fft_hardware_t;
 
 unsigned fft_get_hardware_capabilities(void);
-
-// Thread control
-
-/**
- * @brief Set number of threads for parallel execution
- * @param nthreads Number of threads (0 for automatic)
- */
-void fft_plan_with_nthreads(int nthreads);
 
 // Memory allocation with alignment
 

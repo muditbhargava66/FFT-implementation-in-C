@@ -4,9 +4,7 @@
 /**
  * Recursive FFT Implementation
  * 
- * Educational implementation showing the divide-and-conquer nature
- * of the FFT algorithm. Not optimized for performance but excellent
- * for understanding the algorithm.
+ * Divide-and-conquer implementation chosen for clarity rather than speed.
  * 
  * Time Complexity: O(n log n)
  * Space Complexity: O(n log n) due to recursion

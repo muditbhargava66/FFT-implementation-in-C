@@ -30,7 +30,7 @@ body:
     attributes:
       label: Version or commit
       description: Output of fft_version(), or the commit hash.
-      placeholder: FFT Library v3.0.0 (2026-10-23) - ...
+      placeholder: FFT Library v3.1.0 (2026-10-24) - ...
     validations:
       required: true
   - type: dropdown

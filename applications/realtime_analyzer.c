@@ -36,18 +36,35 @@ typedef struct {
 
 // Create analyzer
 analyzer_t* create_analyzer(analyzer_config_t config) {
+    if (config.fft_size <= 0 || config.hop_size <= 0 || !config.window_type)
+        return NULL;
+
     analyzer_t* analyzer = (analyzer_t*)malloc(sizeof(analyzer_t));
+    if (!analyzer)
+        return NULL;
+
     analyzer->config = config;
     analyzer->input_buffer = allocate_complex_array(config.fft_size);
     analyzer->window_buffer = allocate_complex_array(config.fft_size);
     analyzer->magnitude_avg = (double*)calloc(config.fft_size/2 + 1, sizeof(double));
     analyzer->buffer_pos = 0;
     analyzer->frame_count = 0;
-    
+
+    if (!analyzer->input_buffer || !analyzer->window_buffer ||
+        !analyzer->magnitude_avg) {
+        free_complex_array(analyzer->input_buffer);
+        free_complex_array(analyzer->window_buffer);
+        free(analyzer->magnitude_avg);
+        free(analyzer);
+        return NULL;
+    }
+
     return analyzer;
 }
 
 void destroy_analyzer(analyzer_t* analyzer) {
+    if (!analyzer)
+        return;
     free_complex_array(analyzer->input_buffer);
     free_complex_array(analyzer->window_buffer);
     free(analyzer->magnitude_avg);
@@ -105,8 +122,13 @@ void display_spectrum(analyzer_t* analyzer) {
     const int display_bins = 32;
     const int bar_width = 50;
     
-    double* magnitude = (double*)malloc((analyzer->config.fft_size/2 + 1) * sizeof(double));
-    double* frequencies = (double*)malloc((analyzer->config.fft_size/2 + 1) * sizeof(double));
+    double* magnitude = (double*)calloc(analyzer->config.fft_size/2 + 1, sizeof(double));
+    double* frequencies = (double*)calloc(analyzer->config.fft_size/2 + 1, sizeof(double));
+    if (!magnitude || !frequencies) {
+        free(magnitude);
+        free(frequencies);
+        return;
+    }
     
     get_spectrum(analyzer, magnitude, frequencies);
     
@@ -153,6 +175,8 @@ void display_spectrum(analyzer_t* analyzer) {
 void simulate_audio_stream(analyzer_t* analyzer, int duration_seconds) {
     int samples_per_frame = 256;
     double* audio_frame = (double*)malloc(samples_per_frame * sizeof(double));
+    if (!audio_frame)
+        return;
     
     int total_frames = (duration_seconds * analyzer->config.sample_rate) / samples_per_frame;
     
@@ -190,15 +214,21 @@ typedef struct {
 } tracked_peak_t;
 
 void track_peaks(analyzer_t* analyzer, tracked_peak_t* peaks, int max_peaks) {
-    double* magnitude = (double*)malloc((analyzer->config.fft_size/2 + 1) * sizeof(double));
-    double* frequencies = (double*)malloc((analyzer->config.fft_size/2 + 1) * sizeof(double));
-    
-    get_spectrum(analyzer, magnitude, frequencies);
-    
-    // Reset peaks
+    double* magnitude = (double*)calloc(analyzer->config.fft_size/2 + 1, sizeof(double));
+    double* frequencies = (double*)calloc(analyzer->config.fft_size/2 + 1, sizeof(double));
+
+    // Reset peaks first so a failed allocation leaves the caller with a
+    // complete, inactive array rather than stale entries.
     for (int i = 0; i < max_peaks; i++) {
         peaks[i].active = 0;
     }
+    if (!magnitude || !frequencies) {
+        free(magnitude);
+        free(frequencies);
+        return;
+    }
+
+    get_spectrum(analyzer, magnitude, frequencies);
     
     // Find local maxima
     int peak_count = 0;
@@ -240,6 +270,10 @@ int main() {
     
     // Create analyzer
     analyzer_t* analyzer = create_analyzer(config);
+    if (!analyzer) {
+        fprintf(stderr, "Failed to create analyzer\n");
+        return 1;
+    }
     
     printf("Configuration:\n");
     printf("- FFT Size: %d\n", config.fft_size);
@@ -265,6 +299,10 @@ int main() {
     
     // Generate test signal with multiple tones
     double* test_signal = (double*)malloc(config.fft_size * sizeof(double));
+    if (!test_signal) {
+        destroy_analyzer(analyzer);
+        return 1;
+    }
     for (int i = 0; i < config.fft_size; i++) {
         double t = i / config.sample_rate;
         test_signal[i] = sin(2 * PI * 440 * t) +     // A4
@@ -297,12 +335,11 @@ int main() {
     // Tips for real implementation
     printf("\n\nImplementation Tips:\n");
     printf("===================\n");
-    printf("1. Use ring buffer for efficient sliding window\n");
+    printf("1. Use a ring buffer for the sliding window\n");
     printf("2. Pre-compute window functions\n");
-    printf("3. Use SIMD operations for better performance\n");
-    printf("4. Consider GPU acceleration for multiple channels\n");
-    printf("5. Implement double-buffering for real-time processing\n");
-    printf("6. Use lock-free queues for thread communication\n");
+    printf("3. Reuse an fft_plan_t instead of planning per frame\n");
+    printf("4. Implement double-buffering for capture and processing\n");
+    printf("5. Size the FFT to the hop budget on the target machine\n");
     
     // Cleanup
     free(test_signal);

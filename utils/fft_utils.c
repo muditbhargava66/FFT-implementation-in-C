@@ -111,6 +111,15 @@ int save_complex_array(const char* filename, complex_t* data, int n) {
 }
 
 int load_complex_array(const char* filename, complex_t** data, int* n) {
+    if (!data || !n)
+        return -1;
+
+    *data = NULL;
+    *n = 0;
+
+    if (!filename)
+        return -1;
+
     FILE* fp = fopen(filename, "r");
     if (!fp) {
         fprintf(stderr, "Error: Cannot open file %s for reading\n", filename);
@@ -118,7 +127,6 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
     }
     
     char line[256];
-    *n = 0;
     
     // Read header and determine size
     while (fgets(line, sizeof(line), fp)) {
@@ -137,9 +145,20 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
     
     // Allocate array
     *data = allocate_complex_array(*n);
+    if (!*data) {
+        fclose(fp);
+        *n = 0;
+        return -1;
+    }
     
     // Read data
-    rewind(fp);
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        free_complex_array(*data);
+        *data = NULL;
+        *n = 0;
+        return -1;
+    }
     int idx = 0;
     while (fgets(line, sizeof(line), fp) && idx < *n) {
         if (line[0] != '#') {
@@ -151,6 +170,22 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
         }
     }
     
+    if (ferror(fp)) {
+        fclose(fp);
+        free_complex_array(*data);
+        *data = NULL;
+        *n = 0;
+        return -1;
+    }
+
+    if (idx != *n) {
+        fclose(fp);
+        free_complex_array(*data);
+        *data = NULL;
+        *n = 0;
+        return -1;
+    }
+
     fclose(fp);
     return 0;
 }

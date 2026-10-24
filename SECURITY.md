@@ -4,7 +4,8 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 3.0.x   | Yes       |
+| 3.1.x   | Yes       |
+| 3.0.x   | No        |
 | 2.x     | No        |
 | 1.x     | No        |
 
@@ -61,6 +62,7 @@ Out of scope:
 
 ## Disclosure
 
-We will acknowledge a report as soon as practical, confirm the affected
-versions, and prepare a fix. Please allow time for a release before public
-disclosure. Credit will be given in the changelog unless you prefer otherwise.
+The maintainer will acknowledge a report as soon as practical, confirm the
+affected versions, and prepare a fix. Please allow time for a release before
+public disclosure. Credit will be given in the changelog unless you prefer
+otherwise.

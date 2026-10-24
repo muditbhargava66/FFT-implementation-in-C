@@ -5,435 +5,203 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-10-24
 
+3.1.0 is a correctness and portability release. It fixes the planner and 2-D
+paths found during a full macOS/Linux audit, aligns the documentation with the
+code, and adds CI coverage for macOS and both Windows compilers. The CI run on
+the release branch passes on Linux GCC and Clang, macOS Apple Clang, Windows
+MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
+
+### Added
+- macOS CI lane (Apple Clang) running the test suite, the benchmark pass/fail
+  check, and the non-interactive application demos.
+- Windows CI now covers both MinGW-w64 GCC and clang through the MSYS2 UCRT64
+  toolchain, and runs the application demos as well as the tests.
+- Linux CI runs the application demos in addition to `test_all` and
+  `benchmark_all`.
+- `FFT_ERR_UNSUPPORTED` for an operation a plan cannot perform. It is used by
+  `fft_execute_dft()` when handed a real-valued plan.
+
+### Fixed
+- 2-D execution allocated its transpose buffer after the row pass. An
+  allocation failure returned `FFT_ERR_ALLOC` with the output already partly
+  transformed; the buffer is now allocated first.
+- `load_complex_array()` in `utils/fft_utils.c` did not check the allocation
+  result and ignored read errors. It now fails cleanly, including when the
+  stream cannot be rewound.
+- The filtering demo's `design_fir_filter()` divides by `taps - 1` when it
+  builds the Hamming window and did not check its allocations. It now rejects
+  fewer than two taps and fails cleanly; the demo also checks its test-signal
+  allocations and frees them on the FIR failure path. The realtime analyzer
+  checks its allocations and zero-initializes the spectrum buffers used for
+  peak detection.
+- 2-D plans selected the column-pass algorithm at execute time by consulting
+  the global wisdom cache again. Replacing the cache between planning and
+  execution could therefore change the plan, and under `FFT_WISDOM_ONLY` could
+  make an existing plan fail mid-transform. Both passes are now chosen and
+  validated at planning time. The planner also rejects grids whose element
+  count overflows `int`.
+- `fft_execute_dft()` accepted real-to-complex and complex-to-real plans and
+  silently transformed the buffers the plan was created with. It now returns
+  `FFT_ERR_UNSUPPORTED` for real-valued plans; the documented contract covers
+  complex 1-D and 2-D plans.
+- The `FFT_MEASURE` timing sweep calibrated its batch to 60 raw `clock()` ticks.
+  That is 60 ms on Windows but 60 microseconds on POSIX, where `CLOCKS_PER_SEC`
+  is 1000000, so the measurement was noise on Linux and macOS. The target is
+  now 20 ms expressed as `0.020 * CLOCKS_PER_SEC`.
+- `fft_plan_dft_2d()` wrote a diagnostic to stderr from inside the library. It
+  returns `NULL` for a non-power-of-two grid without printing.
+- The 2-D regression test used an 8x8 plan and only checked that execution
+  succeeded. It now plans a 4x8 transform under `FFT_WISDOM_ONLY`, clears the
+  cache, and compares every output bin with a direct 2-D DFT, which catches
+  execution re-reading wisdom for the column pass.
+
+### Removed
+- `fft_plan_with_nthreads()` and the unused `g_num_threads` global. The
+  function stored a count that no kernel read, and removing it also removed the
+  only warning in a debug build.
+- `FFT_HW_CPU_AVX512` from the hardware capability flags. The detection code
+  never set it.
+
+### Changed
+- Version bumped to 3.1.0 in CMake, `fft_version()`, the documentation, the
+  issue template and the release badge.
+- Documentation corrected against the code: removed the deleted `CHECK_NULL`
+  example, documented the 2-D power-of-two restriction and the
+  `fft_execute_dft()` limitation, replaced code samples that called functions
+  which do not exist, described the demos as they are actually implemented
+  (frequency-sampling FIR, no per-hop plan, four filter types), removed the
+  stale standalone `gcc` command, and fixed the Bluestein/mixed-radix ratios in
+  the README.
+- The documented error contract now says that a failed 1-D transform may leave
+  the output buffer partly written, and the core-transform header no longer
+  promises an unchanged buffer for every failure. The old wording was broader
+  than the implementation.
+- The CMake minimum is 3.20. The project uses `CONFIGURE_DEPENDS`,
+  `add_compile_definitions`, `CMAKE_CUDA_ARCHITECTURES`, and the documented
+  `ctest --test-dir` command, none of which work on 3.10.
+- `fft_plan_c2r_1d()` now sets `FFT_REAL_OUTPUT` in the plan flags, matching
+  the documented behavior and `fft_plan_r2c_1d()`. This changes the c2r wisdom
+  key from the complex-plan key to the real-output key. C2r entries written by
+  older versions, or entries for complex plans, no longer satisfy
+  `FFT_WISDOM_ONLY`; re-plan with `FFT_MEASURE` if you depend on a cached c2r
+  choice.
+- Removed the unused `mkdocstrings` plugin and its dependencies. The project has
+  no Python modules to document, the plugin required Python 3.11, and it made
+  the docs build fail on Python 3.10.
+- Removed the unimplemented `FILTER_CUSTOM` mode from the filtering demo and
+  added the missing raised-cosine transitions for band-pass and band-stop
+  filters.
+- Removed the unused `cmake/FFTConfig.cmake.in`; the project does not install or
+  export a CMake package, so the file could never be used.
+- Added Linux and macOS results and the actual compiler versions to the
+  platform table. These are builds that were run, not expectations.
 
 ## [3.0.0] - 2026-10-23
 
-Release 3.0.0 consolidates the v3 planning API with the correctness,
-performance and build work completed for it. Verified on 2026-10-23 with
-MinGW-w64 GCC 13.2.0: **1361/1361 checks**, no compiler warnings, and
-**52 passed / 0 failed / 2 skipped** benchmark rows in 17.1 s.
-
-### Fixed
-- **Linux links failed without `libm`.** The CMake library target never linked
-  `m`, so `test_all`, the benchmarks and the examples failed with undefined
-  references to `cexp`, `cabs` and `sincos` on both Linux lanes. MinGW and
-  macOS resolve those from the C runtime, which is why the local Windows
-  verification missed it. `fft_lib_c` now propagates `libm` to its consumers on
-  Unix.
-- **Clang's warning-free gate rejected an unused demonstration helper.**
-  `radix4_butterfly_demo()` is called only by the guarded demonstration
-  `main()`; it is now compiled only into that demo, so the library build is
-  clean under `-Wunused-function`.
-- **GitHub issue #3**: build conflicts and documentation inconsistencies
-  resolved, including the stale radix-4 description that claimed it used
-  radix-2 butterflies for every stage.
-- **Multiple-definition linker errors**: every demonstration `main()` and its
-  file-local helpers are guarded by `LIB_BUILD`, which the library target
-  defines.
-- **Dead static helpers** (`dft_2`, `dft_5`, `count_factors`) removed from
-  `mixed_radix.c` and `fft_auto.c`.
-- **`factorize` and `free_factorization`** moved behind `#ifndef LIB_BUILD` in
-  `mixed_radix.c`; only the demo uses them.
-- **`ALGO_COUNT` cases** added to the dispatch switches to silence `-Wswitch`
-  and make an unknown algorithm fail visibly.
-- **`bit_reverse()` produced a wrong permutation for `log2n <= 4`.** The final
-  byte-swap of the 16-bit reversal network was guarded by `if (log2n > 4)`, so
-  `radix2_dit_fft` and `radix2_dif_fft` returned incorrect spectra for N = 4, 8
-  and 16 (measured relative error 0.9-2.7 against a direct DFT), and Bluestein
-  and mixed-radix inherited the fault at those sizes. Not previously reported.
-- **`test_all` could not report failure.** `main()` returned 0 unconditionally,
-  so CTest passed regardless of outcome. It now returns 1 when any check fails.
-- **The test suite had no reference comparison.** No test compared an FFT
-  against an independently computed DFT, so bin-ordering and twiddle-index
-  defects were undetectable. Added a direct-summation reference over a checked
-  bin set (every bin below N=1024, a strided sample plus edges above), with
-  tolerance scaled as O(sqrt(log n)) to match backward-stable round-off.
-  Coverage now includes N=1, primes (3,5,7,31,97,251,1021), non-power-of-two
-  composites, 2*4^k sizes for radix-4, and N up to 16384: 1361 checks.
-- **`log2_int()` looped forever on negative input** (`while (n >>= 1)` never
-  terminates for a negative value under arithmetic shift). Now returns 0 for
-  `n <= 1`, with regression tests.
-- **`next_power_of_two(0)` returned 0**, which callers then allocated as a
-  zero-length FFT. Now returns 1 and computes in unsigned to avoid signed
-  overflow.
-- **`allocate_complex_array()` with `n <= 0`** passed a negative count through
-  `int` to `size_t`, producing a huge allocation request. Returns `NULL` now.
-- **`circular_convolution()` over-read its filter argument by 64 bytes** in the
-  convolution demo: `h` holds `nh = 4` elements but was copied as if it held
-  `nx = 8`. The caller now zero-extends `h`.
-- **`fft_execute()`'s c2r path over-read the caller's spectrum.** It copied `n`
-  complex values from an input documented (in `fft_auto.h` and
-  `docs/api-reference.md`) as holding `n/2+1`; the mirror bins are now
-  generated from the conjugate symmetry instead of being read out of bounds.
-- **`frequency_to_note()` indexed `notes[]` out of bounds** for frequencies
-  below C0 (~16.35 Hz), because C's `%` keeps the sign of the dividend. The
-  pitch class is now normalised and the octave floored.
-- **`fft_export_wisdom_to_string()` could overflow its buffer** by accumulating
-  `snprintf`'s would-be length rather than the bytes written. Truncation now
-  stops the loop instead of driving `cap - pos` negative.
-- **`mixed_radix_fft_recursive()` ignored its `stride` argument** despite being
-  declared in `fft_algorithms.h`; strided calls transformed the wrong elements
-  and overwrote `x[0..n-1]`.
-- **`optimized_dft_real()` left bin `(n+1)/2` uninitialised for odd `n`.** The
-  conjugate-mirror guard tested `k < n/2`, which skips the write for every odd
-  length.
-- **`goertzel_single_bin()` returned the wrong phase.** It computed
-  `s1 - s2*e^{jw}` instead of `e^{jw}*s1 - s2`.
-- **Window functions turned the signal into NaN for `n <= 1`** by dividing by
-  `n-1`; a shorter-than-two window is now left untouched.
-- **`apply_window_hann/hamming/blackman` were defined three times** (library
-  plus two applications), leaving duplicate external symbols resolved only by
-  archive-membership luck. The application copies are gone.
-- **`utils/fft_utils.c` defined an unguarded `main()`**, so any program calling
-  one of its helpers failed to link with "multiple definition of main". This
-  was the one file missed by the v3.0.0 `LIB_BUILD` sweep.
-- **`fft_radix2_sse2()` was mathematically wrong for all n >= 8**: it broadcast
-  a single twiddle across four lanes that each need a different power, and
-  advanced it once per group of four. Each lane now carries its own twiddle and
-  the vector is advanced by w^4 per group. Verified against double-precision
-  radix-2 to within 1.5e-08 (N=2) .. 9.1e-05 (N=4096), consistent with
-  single-precision round-off; previously it produced absolute errors of 3-22.
-- **Feature-test macros are now set in `fft_common.h`**, so `posix_memalign`
-  and `sysconf` are declared under strict `-std=c11`/`-std=c99` regardless of
-  compiler flags (GCC 14+ makes the resulting implicit declarations hard
-  errors). This is the remaining cause of the Debian build failures in issue #4.
-- **`M_PI` is defined on every platform**, not only under `_WIN32`.
-- **Unchecked allocations in `fft_convolution`, `autocorrelation_fft`,
-  `cross_correlation_fft` and `circular_convolution`** were dereferenced
-  immediately; they now fail cleanly.
-- **`fft_recursive()` dereferenced a failed allocation.** Its scratch buffer and
-  the even/odd buffers inside the recursion were used without a null check.
-- **`optimized_dft()` and `create_twiddle_cache()`** dereferenced three
-  allocations and an `n*n` twiddle table without checking, and
-  `optimized_dft()` accepted `n <= 0`.
-- **`bluestein_fft()` computed `2 * n - 1` as a signed `int`.** For
-  `n > 2^30` that overflows, and the negative result fed `next_power_of_two()`
-  into a path where the scratch arrays were smaller than the loops indexing
-  them. Lengths above `2^29` now return `FFT_ERR_RANGE`.
-- **`split_radix_fft()` and `mixed_radix_fft()` dereferenced a null `x`.**
-  Neither checked the buffer before `memcpy`.
-- **Planning flags aliased.** `FFT_MEASURE`, `FFT_PATIENT`, `FFT_EXHAUSTIVE`
-  and `FFT_WISDOM_ONLY` were the consecutive values 1, 2, 3, 4 in an
-  OR-combined bitmask, so `flags & FFT_MEASURE` was also true for
-  `FFT_EXHAUSTIVE`. They are distinct bits now.
-- **`detect_hardware()` advertised AVX and AVX2 on CPUID alone.** Executing them
-  raises `#UD` unless the operating system preserves YMM state, so SSE/AVX are
-  now gated on the `XCR0` bits checked through `XGETBV`, AVX2 additionally on
-  CPUID leaf 7 existing.
-- **The demo in `applications/demo_features.c` printed a hand-written copy of
-  the algorithm-selection rules** instead of asking the plan, and had already
-  drifted: it claimed 4096 and 16384 used Split-Radix and 360 used Mixed-Radix,
-  while the library chose other algorithms. It now reports
-  `fft_plan_algorithm_name()`.
-- **Dead plan data allocated and never read.** `fft_plan_dft_1d()` built an
-  `n`-entry twiddle table (with the forward sign hardcoded, even for inverse
-  plans) and an `n`-entry bit-reversal table that no kernel ever consulted,
-  costing two allocations and `n` `cexp()` calls per plan.
-- **`applications/realtime_analyzer` crashed on about half of all launches.**
-  Built with the project's then-default `-march=native`, MinGW-w64 GCC 13.2.0
-  materialised the 32-byte `analyzer_config_t` passed by value to
-  `create_analyzer()` with `vmovdqa %ymm4, 48(%rsp)` — a 32-byte *aligned*
-  store — into a frame it had only aligned to 16 bytes. The x64 Windows ABI
-  guarantees 16, and `-mpreferred-stack-boundary` is capped at 4 on this target,
-  so 32 cannot be assumed; whether the store faults depends on the mod-32 phase
-  of `%rsp` when the CRT calls `main()`, which varies per process launch. An
-  exception filter confirmed it: 18 of 18 captured faults were that instruction
-  with `(%rsp+48) % 32 == 16`. Measured 14/25 launches SIGSEGV with
-  `-march=native`, 0/40 without; `-mstackrealign` still crashed 10/25 because it
-  only realigns to 16. Fixed by making `-march=native` opt-in (see Changed).
-- **`benchmarks/benchmark_all` took minutes to run and reported `0.000 ms`.**
-  Two separate defects. It recomputed the O(n^2) reference DFT inside
-  `run_single_benchmark()`, i.e. once per implementation — 9 times per size,
-  which is 9 x 14.3 s = 129 s at N=16384 before the O(n^2) `naive_dft` and
-  `optimized_dft` rows. The reference is now computed once per size, and above
-  128 bins it is evaluated on an evenly spaced sample, which is what makes the
-  whole suite finish in 17 s instead of stalling. Separately, a fixed iteration
-  count against `clock()` — which advances about once a millisecond here — made
-  every fast transform print `0.000 ms` and made the scaling analysis take
-  `log(0)`. Batches now grow until they span at least 20 ms, as the planner
-  already did.
-- **`benchmark_all`'s inverse-FFT timing fed a partially computed spectrum.**
-  The round trip is now seeded with the implementation's own forward output, so
-  reconstruction can be checked over all `n` samples at every size rather than
-  only where the full reference happened to exist.
-- **`measure_best_algorithm()` timed algorithms on data that overflowed to Inf.**
-  `time_batch()` re-ran `execute_1d()` on one scratch buffer without restoring it,
-  and a forward transform scales its input by `n`, so the buffer reached `Inf`
-  after a few dozen reps and then `NaN`. That measured about 2x slow at n=16384
-  and, more damagingly, inverted the ranking: it put radix-4 *behind* radix-2 DIT
-  where a correct harness consistently puts it 6-17% ahead from 512 up. Each
-  repetition now restores the buffer from a seed. The same defect was in every
-  timing probe in this repository, which is where the table in
-  `docs/performance.md` came from.
-- **The published performance tables were absolute milliseconds, and absolute
-  milliseconds are not reproducible here.** Three runs of one probe, minutes
-  apart, measured radix-2 DIT at n=16384 at 0.501, 1.372 and 1.433 ms — a 2.9x
-  spread for byte-identical code, from the machine's power and thermal state.
-  `README.md` and `docs/performance.md` now publish cost *relative to radix-2 DIT
-  at the same n*, measured within a run, with the observed min-max range per cell.
-  The control column is mixed-radix, which forwards power-of-two lengths straight
-  to radix-2 DIT and so must read 1.00; it measures 0.99-1.04, which bounds the
-  resolution of every other figure.
-- **The planners could return a non-NULL plan that could never execute.**
-  `choose_algorithm()` returns `ALGO_COUNT` when it has no algorithm to offer,
-  and both `fft_plan_dft_1d` and `fft_plan_dft_2d` fell straight through their
-  `switch` on that value and returned the half-built plan. `execute_1d()` then
-  failed every call with `FFT_ERR_SIZE`, labelled in the source as
-  "sentinel — never selected". A caller checking only for `NULL`, as the API
-  invites, got a plan that reported a size error on a valid size. Both planners
-  now free the partial plan and return `NULL`. `fft_plan_dft_2d` checks the
-  column length as well as the row length, because the column pass chooses its
-  own algorithm at execute time and would otherwise fail partway through a
-  transform rather than at planning.
-- **`benchmark_all` dereferenced unchecked allocations and divided by a count
-  that could be zero.** Its per-size loop passed `allocate_complex_array()`
-  results straight to `memcpy` and the signal generator, and the summary divided
-  the pass/fail percentages by `result_idx`, which is 0 if that loop breaks
-  before recording anything.
-- **Wisdom entries were believed without validation.** `choose_algorithm()`
-  returned whatever the `(n, flags)` cache held, and that cache can be loaded
-  with `fft_import_wisdom_from_string()`. An entry such as `7 0 2` (radix-4 at a
-  prime length) produced a non-NULL plan that failed every execute with
-  `FFT_ERR_SIZE`; an imported GPU id on a build without a GPU produced a plan
-  whose execute returned `FFT_OK` *without transforming anything*, because the
-  GPU dispatch is compiled out. Cache hits and import now check that the
-  algorithm can transform the recorded size and is available on this machine;
-  an unusable entry is skipped at import and treated as a miss at planning time,
-  so `FFT_WISDOM_ONLY` fails closed instead of returning a dead plan.
-- **`FFT_CONSERVE_MEMORY` was ignored at power-of-two lengths and overridden by
-  `FFT_MEASURE`.** The power-of-two branch of `select_algorithm()` returned
-  before consulting the flag, choosing radix-4 at n >= 512 — which digit-reverses
-  through an O(n) scratch array — while in-place radix-2 DIT was available. The
-  flag now selects radix-2 DIT for every power-of-two length and suppresses
-  measurement, which would otherwise hand the choice back to the allocating
-  kernel: at n=4096, `FFT_CONSERVE_MEMORY|FFT_MEASURE` chose radix-4 too.
-
-### Performance
-- **`split_radix_fft()` is now a real split-radix FFT.** The previous version
-  was radix-2 DIT under a split-radix name and docstring; it now performs the
-  one `n/2` plus two `n/4` decomposition that gives split-radix its
-  multiplication count, using a bump-allocated scratch pool rather than a
-  `malloc` per node.
-- **`mixed_radix_fft()` is now a real Cooley-Tukey mixed-radix FFT.** Non
-  power-of-two lengths previously fell through to a direct O(n^2) DFT. Measured
-  at N=4095: **1513 ms -> 5.90 ms**. The 1513 ms is of the superseded code and
-  predates the harness correction below, so the ratio is the meaningful part.
-- **Radix-4 no longer calls `cexp()` inside the innermost loop.** It evaluated
-  three transcendental functions per butterfly; twiddles are now accumulated
-  multiplicatively per stage, as `radix2_dit` already did. That moved it from
-  3.7-4.0x slower than radix-2 DIT to between 0.83x and 0.97x of it at every
-  power-of-two length from 512 up, with the cost of its O(n) digit-reversal
-  buffer still dominating below that.
-- **Measured, then reported honestly.** Costs are now published as ratios
-  against radix-2 DIT at the same length, measured inside a single run, because
-  absolute milliseconds on this machine vary by up to 2.9x between runs of one
-  binary. Radix-2 DIF is indistinguishable from DIT (0.95-1.07 at every size).
-  Radix-4 is 1.41x and 1.21x slower at 16 and 64 and then 0.83x, 0.89x and 0.93x
-  faster at 512, 4096 and 16384. Split-radix is reproducibly 1.6-2.9x slower
-  despite the lower flop count, because its recursion moves about 2.5n elements
-  per level. Bluestein costs about 10x where a radix kernel applies. See
-  `docs/performance.md` for the full table with per-cell ranges.
-- **`select_algorithm()` retuned against those measurements**: the radix-2 DIT /
-  radix-4 crossover moved from 64 to 256, which is where the corrected ratios
-  put it. Bluestein stays the choice for every non-power-of-two length, measured
-  2.1x to 241x faster than mixed-radix, which degrades to O(n^2) at a prime. The
-  previous rules cited a power-of-four test that no longer decides anything.
-  Planning with `FFT_MEASURE` now reaches the same answer as the heuristic at
-  every size checked (64 through 16384, and 360/1000/1021/4095), which is the
-  evidence that the retuned threshold is right rather than merely re-fitted.
+Release 3.0.0 adds the planning API, real and 2-D transforms, a wisdom cache,
+and a reference-comparison test suite. The release was verified on Windows 11
+with MinGW-w64 GCC 13.2.0: 1361/1361 checks, no compiler warnings, and 52 passed
+/ 0 failed / 2 skipped benchmark rows. The same suite and samples were re-run
+after release on Ubuntu 24.04 (GCC 13.3.0, Clang 18.1.3) and macOS 27 arm64
+(Apple Clang 21.0.0, Homebrew GCC 16.2.0) with the same pass counts.
 
 ### Added
-- **Repository automation and security metadata**:
-  `.github/dependabot.yml` (GitHub Actions weekly, docs pip dependencies
-  monthly), `.github/pull_request_template.md`, bug and feature issue forms,
-  and `SECURITY.md` with private reporting guidance and an explicit scope. CI
-  now builds the MkDocs site in strict mode and runs C jobs on `release/**`
-  pushes as well as `main`.
-- **Real-to-Complex FFT** (`fft_plan_r2c_1d`): real input is promoted at execute
-  time and produces `n/2+1` Hermitian-symmetric complex bins.
-- **Complex-to-Real FFT** (`fft_plan_c2r_1d`): the inverse counterpart, which
-  expands the Hermitian half-spectrum and returns `n` real samples.
-- **2-D FFT planning** (`fft_plan_dft_2d`): row-column decomposition with an
-  internal transpose for power-of-two grids.
-- **2-D FFT convolution** (`fft_convolution_2d`): zero-padded row-column FFT,
-  pointwise multiplication, valid-region extraction.
-- **Cross-PSD coherence** (`compute_coherence`): magnitude-squared coherence
-  via Welch's method with 50% overlap and a Hann window.
-- **Modern CMake build** and **CONTRIBUTING.md**; the legacy build scripts are
-  gone.
-- **`FFT_WISDOM_ONLY` is implemented.** It was declared, documented and ignored.
-  A plan built with it now uses a cached algorithm choice or refuses, so a
-  latency-bounded caller can get `NULL` instead of paying for a timing sweep it
-  did not ask for. The flag is masked out of the cache key before the lookup,
-  which is what makes it usable: a decision recorded under `FFT_MEASURE` is found
-  by a later plan passing `FFT_MEASURE | FFT_WISDOM_ONLY`. Keying on the flags
-  verbatim would make that combination always miss and the flag pointless.
-- **Continuous integration** (`.github/workflows/ci.yml`): Linux under gcc and
-  clang, and Windows under MinGW-w64 ucrt64 via `msys2/setup-msys2`. MSVC is not
-  a lane because `CMakeLists.txt` refuses it at configure time. Each lane
-  configures, builds, fails on any compiler warning, runs `ctest`, and runs
-  `benchmark_all` — checking its `Failed: 0` line, because that binary exits 0
-  even when rows report FAIL. The Windows lane needs the MSYS2 shell for every
-  step, which is why this is two jobs rather than one matrix: `shell:` cannot be
-  varied per matrix entry reliably. The gcc lanes are validated locally; the
-  clang lane and both runners are not, since neither clang nor a Linux host is
-  available here.
-- **Error codes instead of `exit()`.** Every transform now returns `fft_error_t`
-  (`FFT_OK`, `FFT_ERR_NULL`, `FFT_ERR_SIZE`, `FFT_ERR_ALLOC`, `FFT_ERR_RANGE`)
-  and leaves the caller's buffer untouched when it fails. Previously a
-  non-power-of-two length reached a library function via `CHECK_POWER_OF_TWO`
-  and terminated the host process. The API change covers the nine transforms in
-  `fft_algorithms.h`, the sixteen convenience wrappers, `fft_execute()`,
-  `fft_execute_dft()` and `fft_auto()`. Discarding the value remains valid C, so
-  existing callers compile unchanged.
-- **`fft_plan_algorithm_name(plan)`** reports which algorithm a plan selected.
-  `select_algorithm()` is static, and without an accessor the only way to show
-  the choice was to re-implement the rules — which `demo_features.c` had done and
-  gotten wrong.
-- **The wisdom cache is now real.** `fft_export_wisdom_to_string()` and
-  `fft_import_wisdom_from_string()` existed since v3.0.0 but nothing populated
-  `g_wisdom` and nothing read it, so planning never consulted it and
-  `FFT_MEASURE` was an empty `if` block with a `TODO`. Planning now goes through
-  `choose_algorithm()`: cached answer if present, otherwise the size heuristic,
-  upgraded to a measured choice under `FFT_MEASURE`.
-- **`FFT_MEASURE` performs a timed sweep.** Each CPU algorithm that accepts the
-  length is batch-timed against a private scratch buffer (never the caller's,
-  since an FFT destroys its input), sampled min-of-three with the candidates
-  interleaved, and a challenger must beat the heuristic by 15% *and* repeat that
-  under a paired A/B confirmation before it is selected. Interleaving and the
-  margin exist because the kernels are closer together than this machine's
-  run-to-run spread; without them the choice flipped between runs.
-- **Batch-calibrated timing throughout.** `clock()` ticks about once a
-  millisecond on Windows, so a single small transform measured as exactly
-  `0.000 ms` and the planner ranked candidates by their position in a list.
-  Batches now grow until the clock can resolve them.
-- **Regression tests for the new surface** (`tests/test_all.c`): every
-  implementation's error codes and untouched-on-failure buffer, planning-flag
-  non-aliasing, heuristic and measured plans compared against the independent
-  reference DFT, a wisdom export/import round trip, rejection of a corrupt
-  wisdom string, the r2c/c2r round trip, and a 2-D DC-bin check. 1361 checks,
-  up from 1340.
+- **Planning API:** `fft_plan_dft_1d`, reusable plans, `fft_execute`,
+  `fft_execute_dft`, `fft_destroy_plan`, and `fft_plan_algorithm_name()`.
+- **Real-valued transforms:** `fft_plan_r2c_1d` and `fft_plan_c2r_1d`, with
+  Hermitian-symmetric output and `n/2+1` input bins for the inverse.
+- **2-D transforms:** `fft_plan_dft_2d` using a row pass, transpose, column
+  pass, and transpose back. Both dimensions must be powers of two.
+- **Wisdom cache:** export/import as text, with validation of imported entries
+  against the transform size and the current machine. `FFT_WISDOM_ONLY` uses a
+  cached choice or refuses to plan; it never measures.
+- **Measured selection:** with `FFT_MEASURE`, candidate kernels are timed on a
+  private scratch buffer, interleaved, and a challenger needs a repeatable win
+  before it replaces the size heuristic. `FFT_CONSERVE_MEMORY` overrides
+  measurement and selects in-place or low-scratch kernels.
+- **Error codes:** all transforms return `fft_error_t` and leave the buffer
+  untouched on failure. The library no longer terminates the host process.
+- **Applications:** 2-D convolution, coherence estimation, and the existing
+  audio, filtering, pitch, power-spectrum and realtime demos.
+- **CI and maintenance:** Linux GCC/Clang, Windows MinGW-w64 and a strict MkDocs
+  job; Dependabot; issue forms and a pull-request template; `SECURITY.md`.
+- **Tests:** an independent direct-DFT reference over 30 sizes, error-code and
+  untouched-buffer checks, planning and wisdom tests, r2c/c2r round trips and a
+  2-D transform check. 1361 checks in total.
+
+### Fixed
+- **Correctness:** `bit_reverse()` produced a partial permutation for
+  `log2n <= 4`, which corrupted radix-2, Bluestein and mixed-radix results at
+  N = 4, 8 and 16. `mixed_radix_fft_recursive()` ignored its stride argument.
+  `optimized_dft_real()` left the middle bin uninitialised for odd lengths.
+  `goertzel_single_bin()` returned the wrong phase.
+  `frequency_to_note()` indexed the note table out of bounds below C0.
+- **Memory safety:** fixed an over-read of the filter in the convolution demo,
+  an over-read of the caller's spectrum in the c2r path, a buffer overflow in
+  `fft_export_wisdom_to_string()`, unchecked allocations in the convolution,
+  correlation and recursive paths, and a null dereference in
+  `split_radix_fft()` and `mixed_radix_fft()`.
+- **Edge cases:** `log2_int()` looped forever on negative input,
+  `next_power_of_two(0)` returned 0, `allocate_complex_array(n <= 0)` requested
+  a huge allocation, window functions produced NaN for `n <= 1`, and Bluestein
+  overflowed its signed scratch size above `2^29`.
+- **Planner:** a failed algorithm choice could return a non-NULL plan that
+  failed every execute. `FFT_MEASURE`, `FFT_PATIENT`, `FFT_EXHAUSTIVE` and
+  `FFT_WISDOM_ONLY` shared consecutive values in an OR-combined bitmask, so a
+  test for one matched another. `FFT_CONSERVE_MEMORY` was ignored at
+  power-of-two sizes and overridden by `FFT_MEASURE`. Imported wisdom entries
+  are now validated before use.
+- **Hardware detection:** AVX and AVX2 were reported from CPUID alone, without
+  checking that the OS saves YMM state. Detection now checks the `XCR0` bits
+  through `XGETBV` and requires CPUID leaf 7 for AVX2.
+- **Build:** Linux consumers failed to link without `libm`; the library target
+  now propagates it. Clang's `-Wunused-function` rejected a demo helper; the
+  helper is compiled only into its demo. The feature-test macros for
+  `posix_memalign` and `sysconf` are set in `fft_common.h` so strict C11/C99
+  builds see the declarations.
+- **Test harness:** `test_all` returned 0 even when checks failed. The benchmark
+  recomputed the O(n^2) reference once per implementation, reported `0.000 ms`
+  for fast transforms, and timed `Inf`/`NaN` data because it re-transformed one
+  buffer without restoring it. The inverse timing was also seeded from a partial
+  spectrum. All three are fixed; benchmark rows now use batched timings and a
+  restored seed.
+- **Applications:** `realtime_analyzer` crashed intermittently when built with
+  `-march=native` on MinGW-w64 GCC 13.2.0 because of a misaligned 32-byte AVX
+  store. `-march=native` is now opt-in. `demo_features` prints the algorithm the
+  planner actually selected instead of a hand-written copy of the rules.
+  Window functions were defined three times; the duplicate application copies
+  are gone. `utils/fft_utils.c` no longer defines an unguarded `main()`.
 
 ### Changed
-- **Documentation dependencies**: `mkdocs-material` 9.7.7 (which includes a
-  DOM-based XSS fix in search suggestions), `pymdown-extensions` 12.3, and
-  `mkdocstrings-python` 2.0.10. Merged as #9-#11 and verified with the strict
-  MkDocs build.
-- **`.gitignore`** now covers MkDocs output (`site/`, `docs/site/`), in-source
-  CMake artifacts, Python caches and coverage files, local `.env` files, OS
-  metadata, and crash dumps.
-- **License**: moved from MIT to Apache License 2.0 for patent protection.
-- **`fft_execute` refactor**: an `execute_1d()` helper now backs the 1-D, r2c,
-  c2r and 2-D paths, with the 2-D path transposing between row and column
-  passes.
-- **`fft_destroy_plan`** now frees the internal complex buffer used by r2c/c2r
-  plans.
-- **Window functions** use standard `creal()`/`cimag()` and `complex_t`
-  assignment instead of the non-portable `.real`/`.imag` members.
-- **Project layout** streamlined around `include/`, `algorithms/{core,dft,auto}`,
-  `utils/`, `applications/`, `benchmarks/`, `tests/`, `gpu/` and `docs/`.
-- **Documentation corrected where it contradicted the code.** `radix4.c` no
-  longer claims O(1) space (it allocates an O(n) digit-reversal buffer) or that
-  the implementation "uses reliable radix-2 butterflies for all stages" — a
-  stale comment and the likely origin of issue #3. `split_radix.c`'s header
-  comment now describes the decomposition it actually performs.
-- **Unsupported claims removed from the documentation**, having been checked
-  against the build:
-  - *MSVC supported*: it is not, and never was — see below.
-  - *GPU acceleration, with a table of CUDA speedups*: the GPU sources are
-    outside the default build behind `if(FALSE AND CMAKE_CUDA_COMPILER)`, and no
-    dispatch layer reaches them, so no GPU number in this repository was
-    measured. The speedup table is gone; the badge and feature list say
-    "source only".
-  - *"100% benchmark pass rate (543/543)"* and a `performance.md` results table
-    whose figures (radix-2 DIT at 0.020 ms for N=1024, split-radix at 0.079 ms
-    for N=4096) disagree with the current code by 4x and 6.5x, including rows
-    reading `0.000 ms`. Replaced with measured numbers, the method, the machine,
-    and the noise floor.
-  - *"OpenMP multi-core support"* and *"AVX-512 vectorization"*: neither is
-    built or reachable; `FFT_THREADED` is accepted and ignored.
-  - `-DENABLE_CUDA=ON` in `docs/windows.md`: no such option existed.
-- **MSVC is now refused with an explanation rather than half-declared.**
-  `fft_common.h` had an `#ifdef _MSC_VER` branch that included `<complex>` — a
-  C++ header — and typedef'd `_Dcomplex`, a structure with no arithmetic
-  operators in C. It could not compile either way. `CMakeLists.txt` now stops at
-  configure time with the reason, and the header repeats it as an `#error`.
-  Clang and clang-cl are explicitly not caught by this.
-- **`docs/optimizations.md`'s manual build command now lists every source
-  directory and `-DLIB_BUILD`.** The old one omitted `algorithms/dft`,
-  `algorithms/auto` and `optimizations`, and would have failed to link.
-- `benchmarks/gpu_benchmark.c` is built as a CMake target so it cannot silently
-  drift from the GPU API again; it had been calling `fft_dft_1d()` and
-  `complex_t.re/.im`, neither of which exists.
-- Build documentation no longer prescribes `-ffast-math` (it reassociates
-  butterfly sums and assumes no NaN/Inf, which is actively harmful for an FFT),
-  references the real library name `libfft_lib_c.a` instead of `-lfft`, and
-  drops instructions for the removed `Makefile`.
-- **`-march=native` is no longer a default compile option.** It is behind
-  `option(FFT_NATIVE_ARCH ... OFF)`, which warns when enabled. Two reasons: it
-  makes binaries non-portable to other CPUs, and it triggers the MinGW-w64 GCC
-  misaligned-AVX-store bug that made `realtime_analyzer` crash on about half of
-  all launches (see Fixed). Every timing in `README.md` and
-  `docs/performance.md` was re-measured without it, so the published numbers now
-  describe what the default build actually produces.
-- **The source glob uses `CONFIGURE_DEPENDS`.** Without it CMake caches the file
-  list, so a stale build directory keeps trying to compile sources that were
-  deleted — which is exactly what removing `optimizations/` would have hit.
-- **Documentation no longer describes code that does not exist.** `README.md`,
-  `docs/index.md`, `docs/optimizations.md`, `docs/performance.md`,
-  `docs/algorithms.md` and `CONTRIBUTING.md` all advertised the SIMD, threading
-  and fixed-point kernels as features. The AVX2 and OpenMP listings in
-  `docs/performance.md` are kept but relabelled as unimplemented sketches, since
-  their shape is useful to whoever picks the work up and leaving them looking
-  like shipped code is how the original claim started. The `bit_reverse()`
-  listings in `docs/optimizations.md` and `docs/performance.md` reproduced the
-  buggy `if (log2n > 4)` version under a function name that never existed; both
-  now show the real code and say what the guard cost. The macOS OpenMP
-  troubleshooting section in `docs/getting-started.md` is gone, along with the
-  claim that "some warnings are expected" — the build is warning-clean and CI
-  fails on the first one.
-
-### Removed
-- Legacy build scripts (`Makefile`, `.bat`, `.ps1`) and the redundant `fft/`,
-  `bin/` and `lib/` directories.
-- **`CHECK_NULL`** from `fft_common.h`. A macro in a public header that calls
-  `exit()` is not something a library should export; its last users were the
-  three `compute_*` helpers, which now return `NULL`. `CHECK_POWER_OF_TWO`
-  remains for standalone programs (`applications/image_fft.c`) and is documented
-  as such.
-- The dead `twiddles` and `bit_reverse_table` fields from `struct fft_plan`.
-- `is_power_of_four()` and `is_prime()` from `fft_auto.c`; nothing selects on
-  them any more. (`is_power_of_four` was listed as a v3.0.0 feature.)
-- The stale `extern` re-declaration of all nine transforms in
-  `benchmarks/benchmark_all.c`, which duplicated `fft_algorithms.h` and drifted.
-- The MSVC `_Dcomplex` compatibility branch in `fft_common.h`.
-- **The whole `optimizations/` directory**: `simd_fft.c`, `parallel_fft.c` and
-  `fixed_point_fft.c`. All three were compiled into `libfft_lib_c.a` by the
-  source glob, but no header declared any of their functions and nothing called
-  them, so no plan could ever reach them. Verified before deleting: zero
-  declarations in `include/*.h` and zero references outside their own files for
-  `fft_radix2_sse2`, `fft_radix2_avx`, `detect_cpu_features`,
-  `fft_radix2_parallel`, `four_step_fft`, `create_thread_pool`,
-  `fft_radix2_q15`, `ifft_radix2_q15` and `normalize_block`. On Windows
-  `four_step_fft` was not a four-step transform at all but
-  `return radix2_dit_fft(...)`. Restoring any of this means writing kernels that
-  `select_algorithm()` can choose and `tests/test_all.c` can verify, not
-  reinstating the files.
-- **`algorithms/core/iterative_fft.c`.** `iterative_fft_detailed()` was a second
-  radix-2 DIT, algorithmically identical to `radix2_dit_fft()`, declared in no
-  header and called only by that file's own demonstration `main()`. The teaching
-  material it existed for — memory-access diagrams and cache simulations — is
-  prose in `docs/performance.md` and does not need to ship as compiled objects.
-- **`FFT_PATIENT`, `FFT_EXHAUSTIVE`, `FFT_UNALIGNED` and `FFT_THREADED`.** All
-  four were accepted by every planner and silently ignored. `FFT_THREADED` could
-  not have been honoured anyway once `parallel_fft.c` went. Their bit positions
-  are deliberately left unused rather than renumbered, so exported wisdom and
-  already-compiled callers keep their meaning. `FFT_WISDOM_ONLY` survives because
-  it is now implemented — see Added.
+- **License:** Apache 2.0 instead of MIT.
+- **Build:** CMake only. The legacy `Makefile`, batch scripts, `fft/`, `bin/`
+  and `lib/` directories are gone. `-march=native` is behind
+  `-DFFT_NATIVE_ARCH=ON`, off by default. MSVC is refused at configure time with
+  an explanation instead of failing partway through.
+- **Dead code removed:** the `optimizations/` directory (SSE2/AVX, pthreads,
+  OpenMP and fixed-point kernels that no header declared and nothing called),
+  the duplicate `iterative_fft.c`, and the unused twiddle and bit-reversal
+  tables in the plan structure.
+- **Kernels:** split-radix is now a real split-radix decomposition, mixed-radix
+  is a real Cooley-Tukey implementation for composite sizes, and radix-4
+  accumulates twiddles per stage instead of calling `cexp()` in the butterfly.
+- **Performance reporting:** absolute milliseconds were not reproducible on the
+  reference machine, so the README and performance guide publish ratios against
+  radix-2 DIT with the observed range, plus the mixed-radix control column.
+- **Documentation:** corrected claims about SIMD, threading, fixed-point, GPU
+  execution and MSVC; removed the unreproducible benchmark and GPU speedup
+  tables; documented the real build targets and library name.
+- **Flags removed:** `FFT_PATIENT`, `FFT_EXHAUSTIVE`, `FFT_UNALIGNED` and
+  `FFT_THREADED` were accepted and ignored. Their bit positions are left unused
+  so exported wisdom keeps its meaning.
 
 ## [2.0.0] - 2025-08-30
+
+*Historical entry, kept as released. The GPU acceleration, SIMD and OpenMP
+items below were later found unreachable from the planner or unbuildable and
+were removed in 3.0.0; see that entry for the details.*
 
 ### Added
 - **Automatic Algorithm Selection**: New `fft_auto()` API that intelligently selects the best algorithm based on transform size and hardware capabilities
@@ -488,12 +256,13 @@ MinGW-w64 GCC 13.2.0: **1361/1361 checks**, no compiler warnings, and
   - SIMD implementation (SSE/AVX)
   - Parallel FFT (OpenMP)
   - Fixed-point FFT
-- Comprehensive benchmark suite
+- Benchmark suite
 - Unit tests
 - Example programs
 - Basic documentation
 
-[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/releases/tag/v1.0.0

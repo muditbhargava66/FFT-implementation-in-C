@@ -12,7 +12,6 @@
  * - High-pass filter
  * - Band-pass filter
  * - Band-stop (notch) filter
- * - Custom frequency response filter
  */
 
 // Filter types
@@ -20,8 +19,7 @@ typedef enum {
     FILTER_LOWPASS,
     FILTER_HIGHPASS,
     FILTER_BANDPASS,
-    FILTER_BANDSTOP,
-    FILTER_CUSTOM
+    FILTER_BANDSTOP
 } filter_type_t;
 
 // Filter parameters
@@ -98,7 +96,34 @@ void apply_transition_band(complex_t* H, int n, filter_params_t* params) {
                 }
                 break;
                 
-            // Add similar transitions for bandpass/bandstop
+            case FILTER_BANDPASS: {
+                double f = fabs(freq);
+                double low = params->cutoff_low;
+                double high = params->cutoff_high;
+                if (f > low - transition/2 && f < low + transition/2) {
+                    double t = (f - (low - transition/2)) / transition;
+                    magnitude = 0.5 * (1 - cos(PI * t));
+                } else if (f > high - transition/2 && f < high + transition/2) {
+                    double t = (f - (high - transition/2)) / transition;
+                    magnitude = 0.5 * (1 + cos(PI * t));
+                }
+                break;
+            }
+
+            case FILTER_BANDSTOP: {
+                double f = fabs(freq);
+                double low = params->cutoff_low;
+                double high = params->cutoff_high;
+                if (f > low - transition/2 && f < low + transition/2) {
+                    double t = (f - (low - transition/2)) / transition;
+                    magnitude = 0.5 * (1 + cos(PI * t));
+                } else if (f > high - transition/2 && f < high + transition/2) {
+                    double t = (f - (high - transition/2)) / transition;
+                    magnitude = 0.5 * (1 - cos(PI * t));
+                }
+                break;
+            }
+
             default:
                 break;
         }
@@ -133,10 +158,15 @@ void fft_filter(complex_t* signal, int n, filter_params_t* params) {
 
 // Design FIR filter using frequency sampling method
 complex_t* design_fir_filter(int taps, filter_params_t* params) {
+    if (taps < 2 || !params)
+        return NULL;
+
     int n = next_power_of_two(taps * 4);  // Zero-pad for better frequency resolution
     
     // Generate frequency response
     complex_t* H = allocate_complex_array(n);
+    if (!H)
+        return NULL;
     generate_ideal_response(H, n, params);
     apply_transition_band(H, n, params);
     
@@ -145,6 +175,10 @@ complex_t* design_fir_filter(int taps, filter_params_t* params) {
     
     // Extract and window the impulse response
     complex_t* h = allocate_complex_array(taps);
+    if (!h) {
+        free_complex_array(H);
+        return NULL;
+    }
     int shift = taps / 2;
     
     for (int i = 0; i < taps; i++) {
@@ -213,6 +247,12 @@ int main() {
     // Create test signal
     complex_t* signal = allocate_complex_array(signal_length);
     complex_t* original = allocate_complex_array(signal_length);
+    if (!signal || !original) {
+        free_complex_array(signal);
+        free_complex_array(original);
+        fprintf(stderr, "Signal allocation failed\n");
+        return 1;
+    }
     
     generate_multi_tone_signal(signal, signal_length, sample_rate);
     memcpy(original, signal, signal_length * sizeof(complex_t));
@@ -271,6 +311,12 @@ int main() {
     
     int taps = 65;
     complex_t* fir_coeff = design_fir_filter(taps, &params);
+    if (!fir_coeff) {
+        fprintf(stderr, "FIR filter design failed\n");
+        free_complex_array(signal);
+        free_complex_array(original);
+        return 1;
+    }
     
     printf("FIR filter coefficients (first 10):\n");
     for (int i = 0; i < 10; i++) {

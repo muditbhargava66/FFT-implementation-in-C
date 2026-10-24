@@ -116,11 +116,6 @@ fft_error_t bluestein_fft(complex_t* x, int n, fft_direction dir) {
     /*
      * Step 3: Forward FFT of both sequences. m is a power of two by
      * construction, so the kernel's size check cannot fire here.
-     *
-     * An earlier version routed m <= 32 through the recursive kernel to dodge
-     * "the problematic M=4,8 cases"; those sizes were wrong because of the
-     * bit_reverse() partial-reversal bug, which is fixed at the source, so the
-     * iterative radix-2 kernel is used at every size.
      */
     radix2_dit_fft(a, m, FFT_FORWARD);
     radix2_dit_fft(b, m, FFT_FORWARD);
@@ -305,11 +300,11 @@ int main() {
     /* Algorithm characteristics */
     printf("\n\nAlgorithm Characteristics:\n");
     printf("=========================\n");
-    printf("✓ Works for any input size (prime, composite, power-of-2)\n");
-    printf("✓ O(n log n) complexity via FFT-based convolution\n");
-    printf("✓ Higher constant factor than specialized algorithms\n");
-    printf("✓ Ideal for sizes with large prime factors\n");
-    printf("✓ Numerically stable for well-conditioned problems\n");
+    printf("- Handles any length, including primes\n");
+    printf("- O(n log n) via FFT-based convolution\n");
+    printf("- Higher constant factor than the radix kernels\n");
+    printf("- Needs about 9n complex numbers of scratch\n");
+    printf("- Round-off grows with the padded transform length\n");
     
     free_complex_array(signal);
     

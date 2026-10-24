@@ -1,40 +1,12 @@
 #include "fft_common.h"
 #include "fft_algorithms.h"
-#include <stdint.h>
 
 /**
  * Audio Spectrum Analyzer
  * 
- * Analyzes audio signals using FFT to display frequency content.
- * Supports WAV file reading and real-time spectrum analysis.
- * 
- * Features:
- * - WAV file parsing
- * - Windowing functions
- * - Frequency bin calculation
- * - Magnitude spectrum display
- * - Peak frequency detection
+ * Generates a synthetic audio signal and displays its frequency content
+ * under several windows, with peak and note detection.
  */
-
-// WAV file header structure
-typedef struct {
-    char riff[4];           // "RIFF"
-    uint32_t size;          // File size - 8
-    char wave[4];           // "WAVE"
-    char fmt[4];            // "fmt "
-    uint32_t fmt_size;      // Format chunk size
-    uint16_t format;        // Audio format (1 = PCM)
-    uint16_t channels;      // Number of channels
-    uint32_t sample_rate;   // Sample rate
-    uint32_t byte_rate;     // Byte rate
-    uint16_t block_align;   // Block align
-    uint16_t bits_per_sample; // Bits per sample
-    char data[4];           // "data"
-    uint32_t data_size;     // Data size
-} wav_header_t;
-
-/* apply_window_* come from utils/window_functions.c and are declared in
- * fft_common.h; local copies here duplicated the symbols. */
 
 // Generate test audio signal
 void generate_test_audio(complex_t* signal, int n, double sample_rate) {
@@ -77,9 +49,7 @@ void find_peaks(double* magnitude, int n, double sample_rate,
             continue;
 
         /* Keep the strongest peaks across the whole spectrum, not the first
-         * max_peaks local maxima in frequency order. The earlier scan stopped
-         * after ten low-frequency noise peaks in the 4096-point test signal and
-         * never reached its 440 Hz component. */
+         * max_peaks local maxima in frequency order. */
         if (*num_peaks == max_peaks &&
             magnitude[i] <= peaks[*num_peaks - 1].magnitude)
             continue;

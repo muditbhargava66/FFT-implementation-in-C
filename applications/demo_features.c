@@ -9,11 +9,10 @@
  * @brief Demonstration of FFT features
  * 
  * Shows:
- * - Automatic algorithm selection
- * - GPU acceleration
- * - New simplified API
- * - Performance comparison
- * - Optimization features (twiddle factors, bit reversal, compiler hints)
+ * - Automatic algorithm selection and plan names
+ * - Hardware capability reporting (CPU-only in this build)
+ * - One-shot and planning API
+ * - Real, 2-D and wisdom paths
  */
 
 // Generate test signal
@@ -55,8 +54,7 @@ void demo_automatic_selection(void) {
             continue;
         }
 
-        /* Ask the plan what it chose. This used to be a hand-written copy of
-         * the selection rules, which had already drifted from the library. */
+        /* Ask the plan what it chose rather than restating the rules here. */
         printf("  Selected algorithm: %s\n", fft_plan_algorithm_name(plan));
         
         generate_test_signal(data, n);
@@ -163,7 +161,7 @@ void demo_simplified_api(void) {
     printf("\nModern API:\n");
     printf("  fft_auto(signal, signal, n, -1);\n");
     printf("  // Automatic algorithm selection\n");
-    printf("  // Best CPU kernel for this machine\n");
+    printf("  // Selected by the planner from the measured cost ratios\n");
     printf("  // GPU only with FFT_PREFER_GPU when a GPU build is available\n");
     
     // Demonstrate usage
@@ -197,19 +195,18 @@ void demo_hardware_detection(void) {
     unsigned caps = fft_get_hardware_capabilities();
     
     printf("CPU Features:\n");
-    if (caps & FFT_HW_CPU_SSE)    printf("  ✓ SSE\n");
-    if (caps & FFT_HW_CPU_AVX)    printf("  ✓ AVX\n");
-    if (caps & FFT_HW_CPU_AVX2)   printf("  ✓ AVX2\n");
-    if (caps & FFT_HW_CPU_AVX512) printf("  ✓ AVX-512\n");
-    if (caps & FFT_HW_CPU_NEON)   printf("  ✓ ARM NEON\n");
+    if (caps & FFT_HW_CPU_SSE)    printf("  - SSE\n");
+    if (caps & FFT_HW_CPU_AVX)    printf("  - AVX\n");
+    if (caps & FFT_HW_CPU_AVX2)   printf("  - AVX2\n");
+    if (caps & FFT_HW_CPU_NEON)   printf("  - ARM NEON\n");
     
     printf("\nGPU Features:\n");
-    if (caps & FFT_HW_GPU_CUDA)   printf("  ✓ NVIDIA CUDA\n");
-    if (caps & FFT_HW_GPU_MPS)    printf("  ✓ Apple Metal\n");
-    if (caps & FFT_HW_GPU_OPENCL) printf("  ✓ OpenCL\n");
+    if (caps & FFT_HW_GPU_CUDA)   printf("  - NVIDIA CUDA\n");
+    if (caps & FFT_HW_GPU_MPS)    printf("  - Apple Metal\n");
+    if (caps & FFT_HW_GPU_OPENCL) printf("  - OpenCL\n");
     
     if (!(caps & (FFT_HW_GPU_CUDA | FFT_HW_GPU_MPS | FFT_HW_GPU_OPENCL))) {
-        printf("  ✗ No GPU acceleration available\n");
+        printf("  - none available in this build\n");
     }
 }
 

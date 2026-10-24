@@ -74,8 +74,9 @@ MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
   stale standalone `gcc` command, and fixed the Bluestein/mixed-radix ratios in
   the README.
 - The documented error contract now says that a failed 1-D transform may leave
-  the output buffer partly written. The old wording promised every caller
-  buffer was untouched, which `fft_execute()` did not provide.
+  the output buffer partly written, and the core-transform header no longer
+  promises an unchanged buffer for every failure. The old wording was broader
+  than the implementation.
 - The CMake minimum is 3.20. The project uses `CONFIGURE_DEPENDS`,
   `add_compile_definitions`, `CMAKE_CUDA_ARCHITECTURES`, and the documented
   `ctest --test-dir` command, none of which work on 3.10.

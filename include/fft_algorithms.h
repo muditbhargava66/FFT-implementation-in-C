@@ -9,8 +9,9 @@
  *
  * Every transform returns an fft_error_t so that a bad length or a failed
  * allocation is reported to the caller instead of terminating the process.
- * Callers that do not care may discard the value; the buffers are left
- * untouched when an error is returned.
+ * Callers that do not care may discard the value. A transform that fails after
+ * it has started may leave its buffer partly modified, so do not use the
+ * result after an error.
  */
 
 /* Core FFT algorithms */

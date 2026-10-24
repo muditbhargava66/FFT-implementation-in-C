@@ -93,6 +93,11 @@ before executing.
 `FFT_MEASURE | FFT_WISDOM_ONLY`, which is the intended use: measure once, reuse
 without measuring again.
 
+`FFT_REAL_INPUT` and `FFT_REAL_OUTPUT` are part of the wisdom key. r2c and c2r
+plans look up entries under their real flag, so an entry recorded for a complex
+plan does not satisfy a real-valued plan under `FFT_WISDOM_ONLY`. C2r entries
+written before 3.1 used the complex-plan key and need to be measured again.
+
 `FFT_PATIENT`, `FFT_EXHAUSTIVE`, `FFT_UNALIGNED` and `FFT_THREADED` were removed
 because nothing implemented them. Their bit positions are left unused so
 exported wisdom keeps its meaning.

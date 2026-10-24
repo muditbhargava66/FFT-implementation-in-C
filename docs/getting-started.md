@@ -125,9 +125,10 @@ if (radix2_dit_fft(data, n, FFT_FORWARD) != FFT_OK) {
 free_complex_array(data);
 ```
 
-Every transform returns `fft_error_t`. If it fails, the input buffer is left
-unchanged. Discarding the return value is allowed in C, but checking it is the
-only way to tell a failed transform from a successful one.
+Every transform returns `fft_error_t`. If it fails after it has started, the
+buffer may be partly modified, so do not use the result. Discarding the return
+value is allowed in C, but checking it is the only way to tell a failed
+transform from a successful one.
 
 For repeated transforms of the same size, the planning API avoids re-deciding
 the algorithm on every call:

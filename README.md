@@ -261,7 +261,10 @@ of them, delete it.
 3.1 removes `fft_plan_with_nthreads()`, which only stored a thread count that no
 kernel read, and `FFT_HW_CPU_AVX512`, which the detection code never reported.
 `fft_execute_dft()` now returns `FFT_ERR_UNSUPPORTED` for real-valued plans
-instead of transforming the buffers stored in the plan.
+instead of transforming the buffers stored in the plan. `fft_plan_c2r_1d()`
+now records its wisdom under `FFT_REAL_OUTPUT`; cached c2r choices from older
+versions no longer satisfy `FFT_WISDOM_ONLY`, so re-plan with `FFT_MEASURE` if
+you depend on them.
 
 ## License
 

@@ -32,9 +32,10 @@ MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
   stream cannot be rewound.
 - The filtering demo's `design_fir_filter()` divides by `taps - 1` when it
   builds the Hamming window and did not check its allocations. It now rejects
-  fewer than two taps and fails cleanly. The realtime analyzer also checks its
-  allocations and zero-initializes the spectrum buffers used for peak
-  detection.
+  fewer than two taps and fails cleanly; the demo also checks its test-signal
+  allocations and frees them on the FIR failure path. The realtime analyzer
+  checks its allocations and zero-initializes the spectrum buffers used for
+  peak detection.
 - 2-D plans selected the column-pass algorithm at execute time by consulting
   the global wisdom cache again. Replacing the cache between planning and
   execution could therefore change the plan, and under `FFT_WISDOM_ONLY` could
@@ -81,7 +82,11 @@ MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
   `add_compile_definitions`, `CMAKE_CUDA_ARCHITECTURES`, and the documented
   `ctest --test-dir` command, none of which work on 3.10.
 - `fft_plan_c2r_1d()` now sets `FFT_REAL_OUTPUT` in the plan flags, matching
-  the documented behavior and `fft_plan_r2c_1d()`.
+  the documented behavior and `fft_plan_r2c_1d()`. This changes the c2r wisdom
+  key from the complex-plan key to the real-output key. C2r entries written by
+  older versions, or entries for complex plans, no longer satisfy
+  `FFT_WISDOM_ONLY`; re-plan with `FFT_MEASURE` if you depend on a cached c2r
+  choice.
 - Removed the unused `mkdocstrings` plugin and its dependencies. The project has
   no Python modules to document, the plugin required Python 3.11, and it made
   the docs build fail on Python 3.10.

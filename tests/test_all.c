@@ -737,6 +737,21 @@ static void test_plan_api(test_config_t *config) {
       for (int i = 0; i < rn && ok; i++)
         ok = fabs(rout[i] - 1.0) < 1e-12;
 
+      /* A c2r plan carries FFT_REAL_OUTPUT in its wisdom key. A complex-plan
+       * entry must not satisfy FFT_WISDOM_ONLY, while an entry keyed with the
+       * real-output flag must. */
+      fft_import_wisdom_from_string("# FFT Wisdom v3.0.0 (1 entries)\n"
+                                    "64 0 0\n");
+      fft_plan_t cold = fft_plan_c2r_1d(rn, cout, rout, FFT_WISDOM_ONLY);
+      ok = ok && cold == NULL;
+      fft_destroy_plan(cold);
+
+      fft_import_wisdom_from_string("# FFT Wisdom v3.0.0 (1 entries)\n"
+                                    "64 64 0\n");
+      fft_plan_t warm = fft_plan_c2r_1d(rn, cout, rout, FFT_WISDOM_ONLY);
+      ok = ok && warm != NULL && fft_execute(warm) == FFT_OK;
+      fft_destroy_plan(warm);
+
       report("plan api", "r2c / c2r round trip", ok, 0.0, NULL);
     }
     free(rin);
@@ -745,11 +760,11 @@ static void test_plan_api(test_config_t *config) {
   }
 
   /*
-   * 2-D on a 4x8 grid. The dimensions are deliberately different: a square
-   * plan uses the same algorithm for both passes, so it cannot show whether
-   * execution uses the choice stored for the column pass. Wisdom supplies
-   * Radix-4 for 4 points and Split-Radix for 8, then is cleared before
-   * execute. The plan must still produce the direct 2-D DFT.
+   * 2-D on a 4x8 grid. The dimensions are deliberately different, and wisdom
+   * supplies Radix-4 for 4 points and Split-Radix for 8. Clearing the cache
+   * before execute makes the old execute-time re-lookup fail under
+   * FFT_WISDOM_ONLY. This checks that both passes were fixed at planning time;
+   * it does not prove which kernel ran, only that the plan remains executable.
    */
   {
     const int rows = 4;

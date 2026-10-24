@@ -247,6 +247,12 @@ int main() {
     // Create test signal
     complex_t* signal = allocate_complex_array(signal_length);
     complex_t* original = allocate_complex_array(signal_length);
+    if (!signal || !original) {
+        free_complex_array(signal);
+        free_complex_array(original);
+        fprintf(stderr, "Signal allocation failed\n");
+        return 1;
+    }
     
     generate_multi_tone_signal(signal, signal_length, sample_rate);
     memcpy(original, signal, signal_length * sizeof(complex_t));
@@ -307,6 +313,8 @@ int main() {
     complex_t* fir_coeff = design_fir_filter(taps, &params);
     if (!fir_coeff) {
         fprintf(stderr, "FIR filter design failed\n");
+        free_complex_array(signal);
+        free_complex_array(original);
         return 1;
     }
     

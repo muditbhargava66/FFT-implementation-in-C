@@ -3,7 +3,7 @@ site_name: FFT Implementation in C
 site_description: FFT algorithms, planning, and applications in C11
 site_author: Mudit Bhargava
 site_url: https://fft-implementation-in-c.readthedocs.io/
-copyright: Copyright 2024-2026 Mudit Bhargava. Apache License 2.0. Release 3.0.0
+copyright: Copyright 2024-2026 Mudit Bhargava. Apache License 2.0. Release 3.1.0
 repo_url: https://github.com/muditbhargava66/FFT-implementation-in-C
 repo_name: FFT-implementation-in-C
 

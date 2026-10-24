@@ -177,7 +177,8 @@ char *fft_export_wisdom_to_string(void);
 
 Returns a `malloc`'d string that the caller must `free`, or `NULL` on allocation
 failure. The format is a `# FFT Wisdom` header followed by `<n> <flags> <algo>`
-lines.
+lines. The header names the wisdom format version (`v3.0.0`), not the library
+version, so files exported by 3.0 remain importable in 3.1.
 
 ### `fft_import_wisdom_from_string`
 

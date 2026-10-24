@@ -7,7 +7,7 @@
  * @file fft_auto.h
  * @brief Automatic FFT algorithm selection and planning
  * 
- * v3.0.0: Simplified API with automatic optimization, r2c/c2r FFTs, 2D FFT, wisdom cache
+ * v3: Simplified API with automatic optimization, r2c/c2r FFTs, 2D FFT, wisdom cache
  */
 
 // FFT Planner - automatically selects best algorithm
@@ -27,7 +27,7 @@ typedef enum {
     FFT_PREFER_GPU  = 1<<9   // Use GPU if available
 } fft_flags_t;
 
-// Main API Functions (v3.0.0)
+// Main API Functions (v3)
 
 /**
  * @brief Create an FFT plan with automatic algorithm selection
@@ -89,7 +89,7 @@ const char* fft_plan_algorithm_name(fft_plan_t plan);
 // Simplified one-shot interface
 
 /**
- * @brief Perform FFT with automatic optimization (v3.0.0)
+ * @brief Perform FFT with automatic optimization (v3)
  * 
  * Automatically selects the best algorithm based on:
  * - Transform size

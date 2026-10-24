@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-10-24
+
+3.1.0 is a correctness and portability release. It fixes the planner and 2-D
+paths found during a full macOS/Linux audit, aligns the documentation with the
+code, and adds CI coverage for macOS and both Windows compilers.
+
+### Added
+- macOS CI lane (Apple Clang) running the test suite, the benchmark pass/fail
+  check, and the non-interactive application demos.
+- Windows CI now covers both MinGW-w64 GCC and clang through the MSYS2 UCRT64
+  toolchain, and runs the application demos as well as the tests.
+- Linux CI runs the application demos in addition to `test_all` and
+  `benchmark_all`.
 
 ### Fixed
 - 2-D execution allocated its transpose buffer after the row pass. An
@@ -34,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning in a debug build.
 
 ### Changed
+- Version bumped to 3.1.0 in CMake, `fft_version()`, the documentation, the
+  issue template and the release badge.
 - Documentation corrected against the code: removed the deleted `CHECK_NULL`
   example, documented the 2-D power-of-two restriction and the
   `fft_execute_dft()` limitation, replaced code samples that called functions
@@ -212,7 +226,8 @@ were removed in 3.0.0; see that entry for the details.*
 - Example programs
 - Basic documentation
 
-[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/releases/tag/v1.0.0

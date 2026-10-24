@@ -1,14 +1,15 @@
 # Windows Support
 
 How to build and test this library on Windows, and what is actually verified
-there. Current release: **3.0.0 (23 October 2026)**.
+there. Current release: **3.1.0 (24 October 2026)**.
 
 ## What works
 
 | Toolchain | Status |
 | --------- | ------ |
 | MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified** — 1361/1361 checks pass, no compiler warnings, on Windows 11 x86_64 with GCC 13.2.0 |
-| clang / clang-cl | Expected to work; not verified here |
+| MinGW-w64 clang (MSYS2 UCRT64) | CI lane added in 3.1.0; not run on a local Windows machine |
+| clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
 
 ### Why `cl.exe` is excluded

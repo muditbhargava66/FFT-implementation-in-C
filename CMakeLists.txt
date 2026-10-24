@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(FFT_Implementation_C VERSION 3.0.0 LANGUAGES C)
+project(FFT_Implementation_C VERSION 3.1.0 LANGUAGES C)
 
 # Optional: Enable CUDA if available
 include(CheckLanguage)

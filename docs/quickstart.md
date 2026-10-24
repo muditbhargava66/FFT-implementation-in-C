@@ -1,6 +1,6 @@
 # Quick Start
 
-This is a short tour of the library for version 3.0.0. The full setup notes are
+This is a short tour of the library for version 3.1.0. The full setup notes are
 in [Getting Started](getting-started.md).
 
 ## Build

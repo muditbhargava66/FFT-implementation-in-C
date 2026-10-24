@@ -4,7 +4,7 @@
 
 [![Documentation](https://readthedocs.org/projects/fft-implementation-in-c/badge/?version=latest)](https://fft-implementation-in-c.readthedocs.io/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Release](https://img.shields.io/badge/release-3.0.0-success)]()
+[![Release](https://img.shields.io/badge/release-3.1.0-success)]()
 
 </div>
 
@@ -75,17 +75,19 @@ binary only needs to run on the build machine.
 
 | Platform | Compiler | Result |
 | --- | --- | --- |
-| Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 1361/1361 checks, 0 warnings; benchmarks 52 passed, 0 failed, 2 skipped |
-| Ubuntu 24.04 (x86_64) | GCC 13.3.0 | 1361/1361 checks, 0 warnings; benchmarks 52/0/2 |
-| Ubuntu 24.04 (x86_64) | Clang 18.1.3 | 1361/1361 checks, 0 warnings |
-| macOS 27, arm64 | Apple Clang 21.0.0 | 1361/1361 checks, 0 warnings; benchmarks 52/0/2 |
-| macOS 27, arm64 | Homebrew GCC 16.2.0 | 1361/1361 checks, 0 warnings |
+| Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 release: 1361/1361 checks, 0 warnings; benchmarks 52 passed, 0 failed, 2 skipped |
+| Ubuntu 24.04 (x86_64) | GCC 13.3.0 | 3.1.0: 1361/1361 checks, 0 warnings with `-Werror`; benchmarks 52/0/2 |
+| Ubuntu 24.04 (x86_64) | Clang 18.1.3 | 3.1.0: 1361/1361 checks, 0 warnings with `-Werror` |
+| macOS 27, arm64 | Apple Clang 21.0.0 | 3.1.0: 1361/1361 checks, 0 warnings; benchmarks 52/0/2 |
+| macOS 27, arm64 | Homebrew GCC 16.2.0 | 3.1.0: 1361/1361 checks, 0 warnings |
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
-The Windows row is the release measurement. The Linux rows were run in an
-Ubuntu 24.04 container; the macOS rows on an Apple M1 Pro. All application
-binaries exit 0 on each platform. Performance figures below are from the Windows
-machine only; they are not a cross-platform comparison.
+The Windows row is the 3.0.0 release measurement. The 3.1.0 rows were run
+locally: Ubuntu 24.04 in a container and macOS on an Apple M1 Pro. All
+application binaries exit 0 on both. The 3.1.0 branch also adds CI lanes for
+macOS and Windows (MinGW-w64 GCC and clang) so those builds are checked on
+every push. Performance figures below are from the Windows 3.0.0 machine; they
+are not a cross-platform comparison.
 
 ## Usage
 

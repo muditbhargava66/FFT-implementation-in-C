@@ -1,9 +1,9 @@
 # Performance Guide
 
-The numbers on this page were measured on the Windows machine described below.
-They describe that machine and that build; they are not a cross-platform
-comparison. Correctness was re-checked on Linux and macOS (see the README), but
-those runs did not produce the table below.
+The numbers on this page were measured on the Windows machine described below
+using the 3.0.0 kernels. Release 3.1.0 does not change the kernels, so they
+still describe it. They are not a cross-platform comparison. Correctness was
+re-checked on Linux and macOS (see the README).
 
 ## How the numbers were measured
 

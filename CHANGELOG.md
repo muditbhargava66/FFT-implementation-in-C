@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 3.1.0 is a correctness and portability release. It fixes the planner and 2-D
 paths found during a full macOS/Linux audit, aligns the documentation with the
-code, and adds CI coverage for macOS and both Windows compilers.
+code, and adds CI coverage for macOS and both Windows compilers. The CI run on
+the release branch passes on Linux GCC and Clang, macOS Apple Clang, Windows
+MinGW-w64 GCC 16.2.0, Windows MinGW-w64 clang 23.1.3, and the strict docs build.
 
 ### Added
 - macOS CI lane (Apple Clang) running the test suite, the benchmark pass/fail

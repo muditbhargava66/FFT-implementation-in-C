@@ -60,8 +60,10 @@ independently inside the test file, over 30 sizes from 1 to 16384. Release
 arm64 (Apple Clang 21.0.0, Homebrew GCC 16.2.0): 1361/1361 checks, no compiler
 warnings, and 52 passed / 0 failed / 2 skipped benchmark rows where the
 benchmark was run. The 3.0.0 release was measured on Windows 11 with MinGW-w64
-GCC 13.2.0 with the same counts, and the 3.1.0 CI adds macOS and Windows
-GCC/clang lanes. Details are in [Performance](performance.md).
+GCC 13.2.0 with the same counts. The 3.1.0 CI run passed on Linux GCC/Clang,
+macOS Apple Clang, Windows MinGW-w64 GCC 16.2.0 and clang 23.1.3, including the
+benchmark pass/fail check and the application demos. Details are in
+[Performance](performance.md).
 
 ## Documentation
 

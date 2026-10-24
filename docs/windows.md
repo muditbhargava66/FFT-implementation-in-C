@@ -7,8 +7,8 @@ there. Current release: **3.1.0 (24 October 2026)**.
 
 | Toolchain | Status |
 | --------- | ------ |
-| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified** — 1361/1361 checks pass, no compiler warnings, on Windows 11 x86_64 with GCC 13.2.0 |
-| MinGW-w64 clang (MSYS2 UCRT64) | CI lane added in 3.1.0; not run on a local Windows machine |
+| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified** — 1361/1361 checks, no compiler warnings locally with GCC 13.2.0; CI with GCC 16.2.0 |
+| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI** — Clang 23.1.3, tests, benchmarks and demos pass |
 | clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
 

@@ -76,18 +76,20 @@ binary only needs to run on the build machine.
 | Platform | Compiler | Result |
 | --- | --- | --- |
 | Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 release: 1361/1361 checks, 0 warnings; benchmarks 52 passed, 0 failed, 2 skipped |
+| Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.1.0 CI: ctest 1/1, 0 warnings; benchmarks 52/0/2; demos 8/8 |
+| Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.3 | 3.1.0 CI: ctest 1/1, 0 warnings; benchmarks 52/0/2; demos 8/8 |
 | Ubuntu 24.04 (x86_64) | GCC 13.3.0 | 3.1.0: 1361/1361 checks, 0 warnings with `-Werror`; benchmarks 52/0/2 |
 | Ubuntu 24.04 (x86_64) | Clang 18.1.3 | 3.1.0: 1361/1361 checks, 0 warnings with `-Werror` |
 | macOS 27, arm64 | Apple Clang 21.0.0 | 3.1.0: 1361/1361 checks, 0 warnings; benchmarks 52/0/2 |
 | macOS 27, arm64 | Homebrew GCC 16.2.0 | 3.1.0: 1361/1361 checks, 0 warnings |
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
-The Windows row is the 3.0.0 release measurement. The 3.1.0 rows were run
-locally: Ubuntu 24.04 in a container and macOS on an Apple M1 Pro. All
-application binaries exit 0 on both. The 3.1.0 branch also adds CI lanes for
-macOS and Windows (MinGW-w64 GCC and clang) so those builds are checked on
-every push. Performance figures below are from the Windows 3.0.0 machine; they
-are not a cross-platform comparison.
+The Windows 11 row is the 3.0.0 release measurement. The other rows were run on
+the 3.1.0 source: Ubuntu 24.04 in a container, macOS on an Apple M1 Pro, and
+the two Windows rows by the 3.1.0 CI workflow on `windows-latest`. All
+application binaries exit 0 on macOS, Linux and Windows. Performance figures
+below are from the Windows 3.0.0 machine; they are not a cross-platform
+comparison.
 
 ## Usage
 

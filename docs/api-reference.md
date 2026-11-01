@@ -332,16 +332,19 @@ void frequency_shift(complex_t *signal, int n, double shift_freq,
 
 `generate_chirp_signal` sweeps linearly from `f_start` to `f_end` over
 `n / sample_rate` seconds and integrates the phase, so the instantaneous
-frequency follows the sweep. `apply_window_kaiser` and `apply_window_tukey` add
-two windows that are not in `fft_common.h`; a window shorter than two samples is
-left unchanged, and Tukey clamps `alpha` to the range 0 to 1.
+frequency follows the sweep. `generate_noise` uses a local generator, so it
+does not reseed or advance the C library's `rand()` sequence.
+`apply_window_kaiser` and `apply_window_tukey` add two windows that are not in
+`fft_common.h`; a window shorter than two samples is left unchanged, and Tukey
+clamps `alpha` to the range 0 to 1.
 
 `save_complex_array` writes the comment header and one
 `index real imag magnitude phase` row per sample, returning 0 on success.
-`load_complex_array` reads that format and allocates the array. On a missing
-file, a malformed `# Size:` line, or a sample count that does not match the
-data, it returns -1 and sets `*data` to `NULL` and `*n` to 0. Free the result
-with `free_complex_array()`.
+`load_complex_array` reads that format and allocates the array. The `# Size:`
+line must appear before any sample row. On a missing file, a malformed or late
+`# Size:` line, or a sample count that does not match the data (truncated or
+extra rows), it returns -1 and sets `*data` to `NULL` and `*n` to 0. Free the
+result with `free_complex_array()`.
 
 `find_spectral_peaks` fills at most `max_peaks` local maxima of the positive
 half-spectrum using quadratic interpolation and sets `*num_peaks`. It sets

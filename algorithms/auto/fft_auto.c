@@ -44,7 +44,6 @@ struct fft_plan {
   complex_t *in;     /* Input buffer */
   complex_t *out;    /* Output buffer */
   fft_direction dir; /* Transform direction */
-  unsigned flags;    /* Planning flags */
   enum fft_algo algorithm;
   enum fft_algo col_algorithm; /* 2-D column pass only */
 
@@ -126,7 +125,7 @@ static void detect_hardware(void) {
 #endif
 
 // Check GPU availability
-#if defined(__APPLE__) || defined(__CUDACC__)
+#if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
   /* fft_gpu_get_backend() only reports a backend after fft_gpu_init(); without
    * the init the hardware flags were never set and GPU plans were unreachable. */
   if (fft_gpu_available() && fft_gpu_init(FFT_GPU_AUTO) == 0) {
@@ -440,6 +439,12 @@ static enum fft_algo choose_algorithm(int n, unsigned flags) {
 
   enum fft_algo algo = select_algorithm(n, flags);
 
+  /* The heuristic can name an algorithm that cannot execute this length
+   * (Bluestein above 2^29 is the only such case). Do not return or cache a
+   * plan that would fail on every execute. */
+  if (algo == ALGO_COUNT || !algorithm_handles_size(algo, n))
+    return ALGO_COUNT;
+
   /* Memory is a constraint, not a tie-breaker for measurement. */
   if ((flags & FFT_MEASURE) && !(flags & FFT_CONSERVE_MEMORY) &&
       algo != ALGO_GPU_CUDA && algo != ALGO_GPU_MPS) {
@@ -468,7 +473,6 @@ fft_plan_t fft_plan_dft_1d(int n, complex_t *in, complex_t *out, int sign,
   plan->in = in;
   plan->out = out;
   plan->dir = (sign < 0) ? FFT_FORWARD : FFT_INVERSE;
-  plan->flags = flags;
 
   // Select algorithm, consulting and refilling the wisdom cache.
   plan->algorithm = choose_algorithm(n, flags);
@@ -493,16 +497,16 @@ fft_plan_t fft_plan_dft_1d(int n, complex_t *in, complex_t *out, int sign,
 
   case ALGO_GPU_CUDA:
   case ALGO_GPU_MPS:
-#if defined(__APPLE__) || defined(__CUDACC__)
-    /* r2c/c2r plans execute through execute_1d(), which acquires its own GPU
-     * buffers; only the plain complex path keeps a plan here. */
+#if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
+    /* Real-input/output plans execute through execute_1d(), which acquires
+     * its own GPU buffers; the plain complex path also keeps a plan here. A
+     * plan that cannot initialize the device would otherwise be created and
+     * fail on every execute, so fail planning instead. */
+    if (fft_gpu_init(FFT_GPU_AUTO) != 0) {
+      free(plan);
+      return NULL;
+    }
     if ((flags & (FFT_REAL_INPUT | FFT_REAL_OUTPUT)) == 0) {
-      /* A plan that cannot allocate its device buffers would otherwise execute
-       * as a silent no-op and report success. */
-      if (fft_gpu_init(FFT_GPU_AUTO) != 0) {
-        free(plan);
-        return NULL;
-      }
       plan->gpu_plan = fft_gpu_plan_1d(n, 1, plan->dir);
       plan->gpu_in = fft_gpu_alloc(n);
       plan->gpu_out = (in == out) ? plan->gpu_in : fft_gpu_alloc(n);
@@ -536,7 +540,7 @@ static fft_error_t execute_1d(complex_t *buf, int len, fft_direction dir,
   case ALGO_MIXED_RADIX:return mixed_radix_fft(buf, len, dir);
   case ALGO_GPU_CUDA:
   case ALGO_GPU_MPS:
-#if defined(__APPLE__) || defined(__CUDACC__)
+#if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
     /* Reached by the r2c/c2r and 2-D paths, which hold one buffer at a time
      * rather than a preallocated GPU plan. */
     if (fft_gpu_init(FFT_GPU_AUTO) != 0)
@@ -592,7 +596,7 @@ fft_error_t fft_execute(fft_plan_t plan) {
     int cols = plan->cols;
     complex_t *buf = plan->out;
 
-#if defined(__APPLE__) || defined(__CUDACC__)
+#if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
     /* One 2-D GPU transform instead of one launch per row and column. */
     if (plan->algorithm == ALGO_GPU_CUDA || plan->algorithm == ALGO_GPU_MPS ||
         plan->col_algorithm == ALGO_GPU_CUDA ||
@@ -657,13 +661,15 @@ fft_error_t fft_execute(fft_plan_t plan) {
   switch (plan->algorithm) {
   case ALGO_GPU_CUDA:
   case ALGO_GPU_MPS:
-#if defined(__APPLE__) || defined(__CUDACC__)
+#if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
     fft_gpu_copy_h2d(plan->gpu_in, plan->in, plan->n);
     if (fft_gpu_execute(plan->gpu_plan, plan->gpu_in, plan->gpu_out) != 0)
       return FFT_ERR_UNSUPPORTED;
     fft_gpu_copy_d2h(plan->out, plan->gpu_out, plan->n);
-#endif
     return FFT_OK;
+#else
+    return FFT_ERR_UNSUPPORTED;
+#endif
   default:
     return execute_1d(plan->out, plan->n, plan->dir, plan->algorithm);
   }
@@ -706,7 +712,7 @@ void fft_destroy_plan(fft_plan_t plan) {
     fft_free(plan->algorithm_data);
 
   if (plan->algorithm == ALGO_GPU_CUDA || plan->algorithm == ALGO_GPU_MPS) {
-#if defined(__APPLE__) || defined(__CUDACC__)
+#if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
     fft_gpu_destroy_plan(plan->gpu_plan);
     fft_gpu_free(plan->gpu_in);
     if (plan->gpu_out != plan->gpu_in)
@@ -778,7 +784,7 @@ void fft_free(void *p) {
 
 // Version string
 const char *fft_version(void) {
-  return "FFT Library v3.2.0 (2026-11-01) - Automatic Algorithm Selection";
+  return "FFT Library v3.3.0 (2026-11-02) - Automatic Algorithm Selection";
 }
 
 /*
@@ -859,7 +865,6 @@ fft_plan_t fft_plan_dft_2d(int rows, int cols, complex_t *in, complex_t *out,
   plan->in = in;
   plan->out = out;
   plan->dir = (sign < 0) ? FFT_FORWARD : FFT_INVERSE;
-  plan->flags = flags;
   plan->algorithm = choose_algorithm(cols, flags); /* per-row algo */
   plan->col_algorithm = choose_algorithm(rows, flags);
 
@@ -870,6 +875,20 @@ fft_plan_t fft_plan_dft_2d(int rows, int cols, complex_t *in, complex_t *out,
     free(plan);
     return NULL;
   }
+
+#if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
+  /* A GPU 2-D plan runs as one device transform. Verify the device is usable
+   * at plan time, like the 1-D path, instead of returning a plan whose every
+   * execute would fail. */
+  if (plan->algorithm == ALGO_GPU_CUDA || plan->algorithm == ALGO_GPU_MPS ||
+      plan->col_algorithm == ALGO_GPU_CUDA ||
+      plan->col_algorithm == ALGO_GPU_MPS) {
+    if (fft_gpu_init(FFT_GPU_AUTO) != 0) {
+      free(plan);
+      return NULL;
+    }
+  }
+#endif
 
   return plan;
 }
@@ -937,7 +956,7 @@ int fft_import_wisdom_from_string(const char *wisdom) {
 #ifndef LIB_BUILD
 
 int main() {
-  printf("FFT Auto - Automatic Algorithm Selection v3.2.0\n");
+  printf("FFT Auto - Automatic Algorithm Selection v3.3.0\n");
   printf("===============================================\n\n");
 
   int test_sizes[] = {16, 64, 256, 1024, 97, 360, 1000};

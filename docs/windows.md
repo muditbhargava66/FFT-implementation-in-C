@@ -1,21 +1,27 @@
 # Windows Support
 
 How to build and test this library on Windows, and what is actually verified
-there. Current release: **3.2.0 (1 November 2026)**.
+there. Current release: **3.3.0 (2 November 2026)**.
 
 ## What works
 
 | Toolchain | Status |
 | --------- | ------ |
-| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified**: 1361/1361 checks locally with GCC 13.2.0 (3.0.0 source); CI with GCC 16.2.0 (3.1.0) |
-| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI**: 3.1.0 with Clang 23.1.3; tests, benchmarks and demos pass |
+| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified**: 3.3.0 locally with GCC 13.2.0, 1362/1362 + 54/54 checks; CI with GCC 16.2.0 (3.2.0) |
+| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI**: 3.2.0 with Clang 23.1.3; tests, benchmarks and demos pass |
 | clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
+| CUDA backend | **Not available natively**; verified under WSL on a GTX 1050 (CUDA 11.5) |
 
-The rows above mix the 3.0.0 local run and the 3.1.0 CI runs. For 3.2.0 the suite
-gained a second binary, `test_utils` (40 checks), and CI now runs
-`realtime_analyzer` as well. The 3.2.0 tree cross-compiles with MinGW-w64 GCC
-16.2.0 and `-Werror`; runtime results come from CI on `windows-latest`.
+The 3.3.0 Windows run executes both test binaries, the benchmarks and all nine
+demo programs (eight applications plus `gpu_benchmark`) with zero warnings.
+Windows application control on the verification machine blocked three of the
+optimized demo binaries by hash; the full demo sweep was run from a Release
+build with `-g` added, which changes the binaries but not the code paths. The
+tests and benchmarks ran from the plain Release build. The 3.2.0 CI rows are
+retained for history. CUDA cannot be built natively: nvcc on Windows requires
+MSVC as its host compiler, and MSVC cannot build the library's C11 `_Complex`
+kernels. Use WSL or Linux instead.
 
 ### Why `cl.exe` is excluded
 
@@ -77,13 +83,33 @@ this limit together.
 
 ## GPU support
 
-Not available on a Windows build. The CUDA sources under `gpu/` are outside the
-default build, and the dispatch layer that would call them is not wired up:
-every `fft_gpu_*` symbol resolves to `utils/fft_gpu_stubs.c`, so
-`fft_gpu_available()` returns 0 and `FFT_PREFER_GPU` falls back to a CPU
-algorithm. `FFT_ENABLE_GPU` compiles the CUDA kernels without connecting them.
-The MPSGraph Metal backend is macOS-only: `FFT_ENABLE_METAL` prints a warning
-on Windows and leaves the stubs in place.
+Native Windows builds are CPU-only. Every `fft_gpu_*` symbol resolves to
+`utils/fft_gpu_stubs.c`, so `fft_gpu_available()` returns 0 and
+`FFT_PREFER_GPU` falls back to a CPU algorithm. `FFT_ENABLE_METAL` prints a
+warning on Windows and leaves the stubs in place.
+
+### CUDA through WSL
+
+The CUDA backend builds and runs in WSL against the Windows display driver.
+CUDA 11.5.119 was verified on a GTX 1050:
+
+```bash
+cmake -S . -B build-cuda -G Ninja -DFFT_ENABLE_CUDA=ON
+cmake --build build-cuda
+ctest --test-dir build-cuda --output-on-failure
+```
+
+The run passed 1362/1362 `test_all` checks, 54/54 utility checks and 74/74
+`test_gpu_cuda` checks, with CTest reporting 3/3. `gpu_benchmark` measured
+0.22x CPU speed at 1024, 0.67x at 4096, 3.56x at 65536 and 13.41x at 1048576;
+small transforms are dominated by transfer and Pascal's FP64 rate. The CUDA
+device path is double precision.
+
+CUDA 13 dropped Pascal (sm_61), so this GPU needs CUDA 12.x or older. The
+installed Windows toolkit (13.1) cannot target it; run nvcc inside WSL instead.
+`FFT_ENABLE_GPU` remains as a deprecated alias for `FFT_ENABLE_CUDA`, and
+enabling either one on native Windows stops at configure time with the
+explanation above.
 
 ## Troubleshooting
 

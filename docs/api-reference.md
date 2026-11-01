@@ -85,7 +85,7 @@ before executing.
 | `FFT_REAL_INPUT` | `1<<5` | Set automatically by `fft_plan_r2c_1d`. |
 | `FFT_REAL_OUTPUT` | `1<<6` | Set automatically by `fft_plan_c2r_1d`. |
 | `FFT_CONSERVE_MEMORY` | `1<<8` | Prefer in-place and low-scratch kernels. Overrides `FFT_MEASURE`. |
-| `FFT_PREFER_GPU` | `1<<9` | Select a GPU algorithm when one is available. A default build has none, so this falls back to the CPU. A Metal build selects `GPU (Metal)` for 1-D plans; r2c, c2r and 2-D plans reach the GPU through `execute_1d()`. |
+| `FFT_PREFER_GPU` | `1<<9` | Select a GPU algorithm when one is available. A default build has none, so this falls back to the CPU. CUDA selects `GPU (CUDA)` and Metal selects `GPU (Metal)` for 1-D plans; r2c, c2r and 2-D plans run through `execute_1d()` or one 2-D GPU transform. |
 
 `FFT_WISDOM_ONLY` is masked out of the cache key. A choice recorded under
 `FFT_MEASURE` is therefore found by a later call passing
@@ -224,18 +224,21 @@ also require the OS to preserve YMM state, which is checked through `XGETBV`.
 
 `FFT_HW_GPU_MPS` is set only when the library was built with
 `-DFFT_ENABLE_METAL=ON`, the OS is macOS 14 or newer, and a Metal device is
-present. Detection initializes the backend once. `FFT_HW_GPU_CUDA` is never set
-by a current build: the CUDA sources compile, but the dispatcher is not wired to
-them.
+present. `FFT_HW_GPU_CUDA` is set only when it was built with
+`-DFFT_ENABLE_CUDA=ON` on Linux/WSL and a CUDA device is present. Detection
+initializes the selected backend once.
 
 ## GPU interface
 
-The declarations are in `include/fft_gpu.h`. With `-DFFT_ENABLE_METAL=ON` on
-macOS 14+, these functions reach MPSGraph. In every other build they are stubs:
-`fft_gpu_available()` returns 0 and the planners report no GPU algorithm.
+The declarations are in `include/fft_gpu.h`. With `-DFFT_ENABLE_CUDA=ON` on
+Linux/WSL these functions reach cuFFT; with `-DFFT_ENABLE_METAL=ON` on macOS 14+
+they reach MPSGraph. In every other build they are stubs: `fft_gpu_available()`
+returns 0 and the planners report no GPU algorithm. Native Windows builds are
+CPU-only; use WSL for CUDA.
 
-The Metal backend stores real and imaginary parts as float32 on the device,
-while `complex_t` is double on the host. `fft_gpu_copy_h2d()` narrows and
+CUDA computes in double precision, so copies do not change representation.
+Metal stores real and imaginary parts as float32 on the device, while
+`complex_t` is double on the host. There, `fft_gpu_copy_h2d()` narrows and
 `fft_gpu_copy_d2h()` widens, so results have float32 accuracy (measured relative
 error 4.5e-6 at n=1024 and 5.3e-4 at n=1048576). Forward transforms are
 unscaled; inverse transforms carry 1/N. A 2-D inverse carries 1/(rows*cols).
@@ -243,11 +246,11 @@ unscaled; inverse transforms carry 1/N. A 2-D inverse carries 1/(rows*cols).
 | Function | Notes |
 | --- | --- |
 | `int fft_gpu_init(fft_gpu_backend_t)` | `FFT_GPU_AUTO` tries CUDA, then Metal. Returns 0 on success. |
-| `void fft_gpu_cleanup(void)` | Releases the device and queue. Plans and buffers must not be used afterwards. |
+| `void fft_gpu_cleanup(void)` | Metal releases the device and queue; CUDA finishes outstanding work and clears the cached backend. Plans and buffers must not be used afterwards. |
 | `int fft_gpu_available(void)` | 1 if a compiled-in backend sees a device. Does not initialize it. |
 | `fft_gpu_backend_t fft_gpu_get_backend(void)` | `FFT_GPU_NONE` until `fft_gpu_init()` succeeds. |
 | `fft_gpu_memory_t fft_gpu_alloc(size_t)` | Allocates space for that many complex values. The handle is opaque. |
-| `void fft_gpu_copy_h2d(...)` / `fft_gpu_copy_d2h(...)` | Convert between double host values and float32 device values. |
+| `void fft_gpu_copy_h2d(...)` / `fft_gpu_copy_d2h(...)` | Move values to and from the device; Metal converts to and from float32. |
 | `fft_gpu_plan_t fft_gpu_plan_1d(int n, int batch, fft_direction)` | Shape `[batch, n]`, transformed along the last axis. Any positive `n` is accepted. |
 | `fft_gpu_plan_t fft_gpu_plan_2d(int rows, int cols, fft_direction)` | Any positive `rows` and `cols`. This is the GPU API, not `fft_plan_dft_2d`, which still requires powers of two. |
 | `int fft_gpu_execute(plan, in, out)` | The plan carries the direction; `in == out` is allowed. Returns 0 or -1. |

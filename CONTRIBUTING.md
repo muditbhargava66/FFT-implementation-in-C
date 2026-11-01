@@ -57,7 +57,9 @@ The requirements:
 1. Put core FFT kernels in `algorithms/core/`, DFT references in
    `algorithms/dft/`, and planner code in `algorithms/auto/`.
 2. Include `../../include/fft_common.h` and `../../include/fft_algorithms.h`.
-3. Return `fft_error_t` and leave the caller's buffer untouched on failure.
+3. Return `fft_error_t`. A failed transform may leave the output buffer partly
+   written; out-of-place calls leave the input unchanged. See the error contract
+   in `docs/api-reference.md`.
 4. Declare the function in `include/fft_algorithms.h`. A kernel that no header
    declares cannot be used and should not be committed.
 5. If the planner should be able to choose it, add it to `select_algorithm()`

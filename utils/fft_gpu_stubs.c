@@ -6,7 +6,7 @@
  * @brief Stub implementations for GPU functions when GPU support is disabled
  */
 
-#ifndef FFT_GPU_ENABLED
+#if !defined(FFT_GPU_CUDA_ENABLED) && !defined(FFT_GPU_METAL_ENABLED)
 
 int fft_gpu_init(fft_gpu_backend_t backend) {
     (void)backend;
@@ -90,4 +90,4 @@ int fft_gpu_set_device(int device) {
     return -1;
 }
 
-#endif // !FFT_GPU_ENABLED
+#endif /* !FFT_GPU_CUDA_ENABLED && !FFT_GPU_METAL_ENABLED */

@@ -13,7 +13,7 @@
 static fft_gpu_backend_t g_current_backend = FFT_GPU_NONE;
 
 // Backend-specific functions
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
 extern int fft_gpu_init_metal(void);
 extern void fft_gpu_cleanup_metal(void);
 extern int fft_gpu_available_metal(void);
@@ -41,7 +41,7 @@ extern int fft_gpu_dft_2d_metal(complex_t *in, complex_t *out, int rows,
                                 int cols, fft_direction dir);
 #endif
 
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
 extern int fft_gpu_init_cuda(void);
 extern void fft_gpu_cleanup_cuda(void);
 extern int fft_gpu_available_cuda(void);
@@ -52,8 +52,8 @@ extern void fft_gpu_copy_h2d_cuda(fft_gpu_memory_t dst, const complex_t *src,
 extern void fft_gpu_copy_d2h_cuda(complex_t *dst, fft_gpu_memory_t src,
                                   size_t n);
 extern fft_gpu_plan_t fft_gpu_plan_1d_cuda(int n, int batch, fft_direction dir);
-extern void fft_gpu_execute_cuda(fft_gpu_plan_t plan, fft_gpu_memory_t in,
-                                 fft_gpu_memory_t out, fft_direction dir);
+extern int fft_gpu_execute_cuda(fft_gpu_plan_t plan, fft_gpu_memory_t in,
+                                fft_gpu_memory_t out);
 extern void fft_gpu_destroy_plan_cuda(fft_gpu_plan_t plan);
 extern const char *fft_gpu_get_device_name_cuda(void);
 extern void fft_gpu_get_memory_info_cuda(size_t *total, size_t *available);
@@ -71,13 +71,13 @@ extern int fft_gpu_dft_2d_cuda(complex_t *in, complex_t *out, int rows,
 int fft_gpu_init(fft_gpu_backend_t backend) {
   if (backend == FFT_GPU_AUTO) {
 // Try CUDA first, then Metal
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     if (fft_gpu_available_cuda()) {
       backend = FFT_GPU_CUDA;
     }
 #endif
 
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     if (backend == FFT_GPU_AUTO && fft_gpu_available_metal()) {
       backend = FFT_GPU_METAL;
     }
@@ -92,7 +92,7 @@ int fft_gpu_init(fft_gpu_backend_t backend) {
 
   switch (backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     result = fft_gpu_init_cuda();
 #else
     fprintf(stderr, "CUDA support not compiled in\n");
@@ -100,7 +100,7 @@ int fft_gpu_init(fft_gpu_backend_t backend) {
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     result = fft_gpu_init_metal();
 #else
     fprintf(stderr, "Metal support only available on macOS\n");
@@ -122,13 +122,13 @@ int fft_gpu_init(fft_gpu_backend_t backend) {
 void fft_gpu_cleanup(void) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     fft_gpu_cleanup_cuda();
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     fft_gpu_cleanup_metal();
 #endif
     break;
@@ -142,12 +142,12 @@ void fft_gpu_cleanup(void) {
 
 // Check if GPU is available
 int fft_gpu_available(void) {
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
   if (fft_gpu_available_cuda())
     return 1;
 #endif
 
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
   if (fft_gpu_available_metal())
     return 1;
 #endif
@@ -162,13 +162,13 @@ fft_gpu_backend_t fft_gpu_get_backend(void) { return g_current_backend; }
 fft_gpu_memory_t fft_gpu_alloc(size_t size) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return fft_gpu_alloc_cuda(size);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_alloc_metal(size);
 #endif
     break;
@@ -187,13 +187,13 @@ void fft_gpu_free(fft_gpu_memory_t mem) {
 
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     fft_gpu_free_cuda(mem);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     fft_gpu_free_metal(mem);
 #endif
     break;
@@ -207,13 +207,13 @@ void fft_gpu_free(fft_gpu_memory_t mem) {
 void fft_gpu_copy_h2d(fft_gpu_memory_t dst, const complex_t *src, size_t size) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     fft_gpu_copy_h2d_cuda(dst, src, size);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     fft_gpu_copy_h2d_metal(dst, src, size);
 #endif
     break;
@@ -227,13 +227,13 @@ void fft_gpu_copy_h2d(fft_gpu_memory_t dst, const complex_t *src, size_t size) {
 void fft_gpu_copy_d2h(complex_t *dst, fft_gpu_memory_t src, size_t size) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     fft_gpu_copy_d2h_cuda(dst, src, size);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     fft_gpu_copy_d2h_metal(dst, src, size);
 #endif
     break;
@@ -247,13 +247,13 @@ void fft_gpu_copy_d2h(complex_t *dst, fft_gpu_memory_t src, size_t size) {
 fft_gpu_plan_t fft_gpu_plan_1d(int n, int batch, fft_direction direction) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return fft_gpu_plan_1d_cuda(n, batch, direction);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_plan_1d_metal(n, batch, direction);
 #endif
     break;
@@ -273,14 +273,13 @@ int fft_gpu_execute(fft_gpu_plan_t plan, fft_gpu_memory_t in,
 
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
-    fft_gpu_execute_cuda(plan, in, out, FFT_FORWARD); /* direction from plan */
-    return 0;
+#ifdef FFT_GPU_CUDA_ENABLED
+    return fft_gpu_execute_cuda(plan, in, out);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_execute_metal(plan, in, out, FFT_FORWARD);
 #endif
     break;
@@ -299,13 +298,13 @@ void fft_gpu_destroy_plan(fft_gpu_plan_t plan) {
 
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     fft_gpu_destroy_plan_cuda(plan);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     fft_gpu_destroy_plan_metal(plan);
 #endif
     break;
@@ -319,13 +318,13 @@ void fft_gpu_destroy_plan(fft_gpu_plan_t plan) {
 const char *fft_gpu_get_device_name(void) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return fft_gpu_get_device_name_cuda();
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_get_device_name_metal();
 #endif
     break;
@@ -347,13 +346,13 @@ void fft_gpu_get_memory_info(size_t *total, size_t *available) {
 
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     fft_gpu_get_memory_info_cuda(total, available);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     fft_gpu_get_memory_info_metal(total, available);
 #endif
     break;
@@ -368,13 +367,13 @@ int fft_gpu_dft_1d(complex_t *in, complex_t *out, int n,
                    fft_direction direction) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return fft_gpu_dft_1d_cuda(in, out, n, direction);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_dft_1d_metal(in, out, n, direction);
 #endif
     break;
@@ -388,15 +387,16 @@ int fft_gpu_dft_1d(complex_t *in, complex_t *out, int n,
 
 // Set GPU device
 int fft_gpu_set_device(int device) {
+  (void)device;
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return -1; /* not implemented for the CUDA backend */
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_set_device_metal(device);
 #endif
     break;
@@ -413,13 +413,13 @@ int fft_gpu_dft_1d_batch(complex_t *in, complex_t *out, int n, int batch,
                          fft_direction direction) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return fft_gpu_dft_1d_batch_cuda(in, out, n, batch, direction);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_dft_1d_batch_metal(in, out, n, batch, direction);
 #endif
     break;
@@ -441,13 +441,13 @@ int fft_gpu_dft_1d_batch(complex_t *in, complex_t *out, int n, int batch,
 fft_gpu_plan_t fft_gpu_plan_2d(int rows, int cols, fft_direction direction) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return fft_gpu_plan_2d_cuda(rows, cols, direction);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_plan_2d_metal(rows, cols, direction);
 #endif
     break;
@@ -464,13 +464,13 @@ int fft_gpu_dft_2d(complex_t *in, complex_t *out, int rows, int cols,
                    fft_direction direction) {
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
-#ifdef __CUDACC__
+#ifdef FFT_GPU_CUDA_ENABLED
     return fft_gpu_dft_2d_cuda(in, out, rows, cols, direction);
 #endif
     break;
 
   case FFT_GPU_METAL:
-#ifdef __APPLE__
+#ifdef FFT_GPU_METAL_ENABLED
     return fft_gpu_dft_2d_metal(in, out, rows, cols, direction);
 #endif
     break;

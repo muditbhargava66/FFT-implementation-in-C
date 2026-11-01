@@ -665,6 +665,23 @@ static void test_plan_api(test_config_t *config) {
   }
 
   /*
+   * A non-power-of-two length above Bluestein's 2n-1 limit used to produce a
+   * non-NULL plan that failed FFT_ERR_RANGE on every execute. The heuristic
+   * must reject it at planning time, and a hostile wisdom entry for the same
+   * length must not be imported.
+   */
+  {
+    const int too_big = (1 << 29) + 1;
+    complex_t *dummy = (complex_t *)(size_t)1;
+    fft_plan_t doomed = fft_plan_dft_1d(too_big, dummy, dummy, -1, FFT_ESTIMATE);
+    int imported = fft_import_wisdom_from_string(
+        "# FFT Wisdom v3.0.0 (1 entries)\n536870913 0 4\n");
+    report("plan api", "oversized Bluestein length rejected",
+           doomed == NULL && imported == 0, 0.0, NULL);
+    fft_destroy_plan(doomed);
+  }
+
+  /*
    * FFT_CONSERVE_MEMORY is a constraint. Radix-4 is faster at 512 and up but
    * allocates an O(n) digit-reversal buffer; radix-2 DIT is in place. The flag
    * must pick radix-2 for power-of-two sizes, and FFT_MEASURE must not override

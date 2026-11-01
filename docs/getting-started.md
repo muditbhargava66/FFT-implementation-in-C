@@ -37,6 +37,10 @@
     sudo apt-get install build-essential cmake
     ```
 
+    For the CUDA backend, install a CUDA toolkit in WSL that supports the GPU.
+    The Windows display driver provides the device; no GPU driver is installed
+    inside WSL. CUDA 13 dropped Pascal, so a GTX 1050 needs CUDA 12.x or older.
+
 ## Build and test
 
 ```bash
@@ -48,14 +52,16 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-`ctest` runs two binaries: `test_all`, which compares every implementation
+`ctest` runs two CPU binaries: `test_all`, which compares every implementation
 against a direct DFT, and `test_utils`, which covers the file I/O and helper
-functions. A successful `test_all` run ends with `1361/1361 checks passed`; the
-utility suite ends with `40/40 checks passed`.
+functions. A successful `test_all` run ends with `1362/1362 checks passed`; the
+utility suite ends with `54/54 checks passed`.
 
-On macOS 14 or newer, `cmake -S . -B build-metal -DFFT_ENABLE_METAL=ON` adds a
-third test, `test_gpu_metal` (70 checks), which runs the MPSGraph backend against
-a direct DFT. It reports a skip instead of failing when no Metal device is
+On macOS 14 or newer, `cmake -S . -B build-metal -DFFT_ENABLE_METAL=ON` adds
+`test_gpu_metal` (70 checks), which runs the MPSGraph backend against a direct
+DFT. On Linux or WSL with a CUDA toolkit,
+`cmake -S . -B build-cuda -DFFT_ENABLE_CUDA=ON` adds `test_gpu_cuda` (74 checks)
+using cuFFT. Both report a CTest skip, not a failure, when no GPU device is
 available.
 
 To choose a compiler, pass it at configure time:

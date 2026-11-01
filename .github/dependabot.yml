@@ -5,8 +5,9 @@
 #   - pip: docs/requirements.txt, used to build the Read the Docs site
 #
 # C and CMake have no Dependabot ecosystem, and the library vendors no third-
-# party sources. The gpu/ directory is compiled only with FFT_ENABLE_GPU=ON and
-# fetches nothing, so there is no submodule or package ecosystem to track.
+# party sources. The gpu/ directory is compiled only with FFT_ENABLE_CUDA=ON or
+# FFT_ENABLE_METAL=ON, against system toolkits, and fetches nothing, so there is
+# no submodule or package ecosystem to track.
 #
 # Schema:
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file

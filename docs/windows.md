@@ -12,6 +12,11 @@ there. Current release: **3.2.0 (1 November 2026)**.
 | clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
 
+The table records the 3.1.0 runs. For 3.2.0 the suite gained a second binary,
+`test_utils` (40 checks), and CI now runs `realtime_analyzer` as well. The 3.2.0
+tree cross-compiles with MinGW-w64 GCC 16.2.0 and `-Werror`; runtime results
+come from CI on `windows-latest`.
+
 ### Why `cl.exe` is excluded
 
 Every kernel is written against C11 complex arithmetic:

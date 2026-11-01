@@ -113,13 +113,14 @@ dispatch path.
 | --- | --- | --- |
 | macOS 27, arm64 | Apple Clang 21.0.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | macOS 27, arm64, `FFT_ENABLE_METAL=ON` | Apple Clang 21.0.0 | 3.2.0: 1361/1361 + 40/40 + 70/70 GPU checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
+| macOS (CI, macos-latest) | Apple Clang | 3.2.0 CI: 2/2 tests, 0 warnings; benchmarks 52/0/2; demos 9/9; Metal test passed |
 | macOS 27, arm64 | Homebrew GCC 16.2.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 24.04, arm64 (container) | GCC 13.3.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 24.04, arm64 (container) | Clang 18.1.3 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 24.04, arm64 (container) | Clang 18.1.3, ASan + UBSan | 3.2.0: 1361/1361 + 40/40 checks, no sanitizer reports; demos 9/9 |
 | Windows x86_64 (cross-build) | MinGW-w64 GCC 16.2.0 | 3.2.0: full tree, including `test_utils.exe` and `realtime_analyzer.exe`, builds with `-Werror`; binaries not executed here |
-| Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.1.0 CI: ctest passed, 0 warnings; benchmarks 52/0/2; demos 8/8 |
-| Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.3 | 3.1.0 CI: ctest passed, 0 warnings; benchmarks 52/0/2; demos 8/8 |
+| Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.2.0 CI: 2/2 tests, 0 warnings; benchmarks 52/0/2; demos 9/9 |
+| Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.4 | 3.2.0 CI: 2/2 tests, 0 warnings; benchmarks 52/0/2; demos 9/9 |
 | Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 timing machine: 1361/1361 checks; benchmarks 52/0/2 |
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
@@ -128,9 +129,8 @@ container on arm64, and macOS on an Apple M1 Pro. The Metal row uses the same
 M1 Pro with `-DFFT_ENABLE_METAL=ON` and `-Werror` for both C and Objective-C.
 The Windows x86_64 row is a cross-build with the same compiler version as CI;
 it proves the sources compile and link, not that the binaries run. The CI rows
-are the 3.1.0 results. The 3.2.0 workflow adds a Linux ASan/UBSan lane, builds
-and runs the Metal backend on macOS, and runs `realtime_analyzer` on Windows
-too; those results will be recorded here after the release branch runs.
+are the 3.2.0 results; all seven jobs passed, including the Linux ASan/UBSan
+lane, the Metal build and test on macOS, and `realtime_analyzer` on Windows.
 Performance figures below are from the Windows 3.0.0 machine; they are not a
 cross-platform comparison.
 

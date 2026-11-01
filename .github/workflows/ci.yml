@@ -244,13 +244,19 @@ jobs:
       image: nvidia/cuda:12.6.3-devel-ubuntu22.04
 
     steps:
+      # The CUDA devel images ship no git, and actions/checkout needs it.
+      - name: Install git
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates
+
       - uses: actions/checkout@v7
 
       - name: Install build tools
         run: |
-          apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates wget xz-utils ninja-build gcc g++ make
+            wget xz-utils ninja-build gcc g++ make
           wget -q https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-linux-x86_64.tar.gz -O /tmp/cmake.tar.gz
           tar -xzf /tmp/cmake.tar.gz -C /opt
           ln -sf /opt/cmake-3.29.2-linux-x86_64/bin/cmake /usr/local/bin/cmake

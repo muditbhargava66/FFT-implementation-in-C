@@ -67,6 +67,15 @@ them; the GPU has separate one-shot numbers.
   invalid arguments.
 - The recursive FFT's header comment claimed O(n log n) space; peak usage is
   O(n).
+- The application demos check every allocation before use. Convolution
+  evaluates output lengths in 64 bits and validates 2-D FFT dimensions before
+  allocating; the DSP demos reject FFT lengths the kernels cannot transform.
+- `realtime_analyzer` printed a hard-coded 0.1 ms FFT time; it now measures the
+  transform, and its real-time factor uses the hop duration. `demo_features`
+  no longer prints a CPU-versus-GPU speedup from `clock()` timings that omit
+  the blocking GPU wait; it compares the two outputs instead.
+- `power_spectrum` avoids `log10(0)` and rejects lengths where `2 * n`
+  overflows; `fft_filtering` resets the working buffer before its timing pass.
 
 ### Changed
 - Windows CI runs `realtime_analyzer`, so all nine demos are exercised there.
@@ -96,6 +105,8 @@ them; the GPU has separate one-shot numbers.
   saying no GPU path exists.
 - Rewrote the core-algorithm README, which still used repeated template blocks
   and star ratings that contradicted the measured results.
+- `docs/applications.md` now lists only the helpers each demo actually calls
+  and says which routines are present but unused.
 
 ## [3.1.0] - 2026-10-24
 

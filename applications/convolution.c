@@ -397,7 +397,7 @@ int main() {
     printf("1. Divide signal into overlapping blocks\n");
     printf("2. Convolve each block using FFT\n");
     printf("3. Add overlapping regions\n");
-    printf("This allows processing of streaming data!\n");
+    printf("This allows processing of streaming data.\n");
     
     return 0;
 }

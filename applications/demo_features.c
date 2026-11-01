@@ -228,15 +228,15 @@ int main() {
     demo_gpu_acceleration();
     
     // Summary
-    printf("\n\n=== Summary of Features ===\n");
-    printf("1. Automatic algorithm selection based on size and hardware\n");
+    printf("\n\n=== What this build provides ===\n");
+    printf("1. Algorithm selection by length, flags and optional measurement\n");
     printf("2. GPU backends in source, excluded from the default build (CPU-only)\n");
-    printf("3. Simplified API with fft_auto() function\n");
-    printf("4. Cross-platform compatibility\n");
-    printf("5. Intelligent planning with FFT_MEASURE flag\n");
-    printf("6. Hardware detection and optimization\n");
-    printf("7. Real-to-complex and complex-to-real FFT (r2c/c2r)\n");
-    printf("8. 2D FFT planning with row-column decomposition\n");
+    printf("3. One-shot API: fft_auto()\n");
+    printf("4. Linux, macOS and Windows (MinGW-w64) builds\n");
+    printf("5. Timing-based selection with FFT_MEASURE\n");
+    printf("6. CPU and GPU capability detection; execution stays on the CPU here\n");
+    printf("7. Real-to-complex and complex-to-real transforms\n");
+    printf("8. 2-D planning with row-column decomposition\n");
     printf("9. Wisdom cache for persistent algorithm selection\n");
     printf("10. Single-threaded planner; see the README's thread-safety note\n");
     

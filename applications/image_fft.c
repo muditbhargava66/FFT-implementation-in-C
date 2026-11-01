@@ -16,15 +16,30 @@
  */
 
 // 2D complex array allocation
+void free_2d_complex(complex_t** array, int rows);
+
 complex_t** allocate_2d_complex(int rows, int cols) {
-    complex_t** array = (complex_t**)malloc(rows * sizeof(complex_t*));
+    if (rows <= 0 || cols <= 0)
+        return NULL;
+
+    complex_t** array = (complex_t**)malloc((size_t)rows * sizeof(complex_t*));
+    if (!array)
+        return NULL;
+
     for (int i = 0; i < rows; i++) {
         array[i] = allocate_complex_array(cols);
+        if (!array[i]) {
+            free_2d_complex(array, i);
+            return NULL;
+        }
     }
     return array;
 }
 
 void free_2d_complex(complex_t** array, int rows) {
+    if (!array)
+        return;
+
     for (int i = 0; i < rows; i++) {
         free_complex_array(array[i]);
     }
@@ -33,9 +48,11 @@ void free_2d_complex(complex_t** array, int rows) {
 
 // 2D FFT using row-column decomposition
 void fft_2d(complex_t** data, int rows, int cols, fft_direction dir) {
-    // Check if dimensions are powers of 2
-    CHECK_POWER_OF_TWO(rows);
-    CHECK_POWER_OF_TWO(cols);
+    if (!data || !is_power_of_two(rows) || !is_power_of_two(cols)) {
+        fprintf(stderr, "fft_2d: dimensions must be powers of two (got %dx%d)\n",
+                rows, cols);
+        return;
+    }
     
     // Transform rows
     for (int i = 0; i < rows; i++) {
@@ -44,6 +61,10 @@ void fft_2d(complex_t** data, int rows, int cols, fft_direction dir) {
     
     // Transform columns
     complex_t* column = allocate_complex_array(rows);
+    if (!column) {
+        fprintf(stderr, "fft_2d: could not allocate the column buffer\n");
+        return;
+    }
     for (int j = 0; j < cols; j++) {
         // Extract column
         for (int i = 0; i < rows; i++) {
@@ -72,6 +93,8 @@ void fft_shift_2d(complex_t** data, int rows, int cols) {
     int half_cols = cols / 2;
     
     complex_t** temp = allocate_2d_complex(rows, cols);
+    if (!temp)
+        return;
     
     // Copy to temp with shift
     for (int i = 0; i < rows; i++) {
@@ -185,6 +208,7 @@ void display_magnitude_2d(complex_t** data, int rows, int cols, const char* titl
             if (mag > max_mag) max_mag = mag;
         }
     }
+    if (max_mag <= 0.0) max_mag = 1.0;
     
     // Display center region
     int display_size = 16;
@@ -234,6 +258,12 @@ void demo_2d_fft_properties() {
     int rows = 32, cols = 32;
     complex_t** image = allocate_2d_complex(rows, cols);
     complex_t** spectrum = allocate_2d_complex(rows, cols);
+    if (!image || !spectrum) {
+        fprintf(stderr, "demo_2d_fft_properties: allocation failed\n");
+        free_2d_complex(image, rows);
+        free_2d_complex(spectrum, rows);
+        return;
+    }
     
     printf("\n2D FFT Properties Demonstration:\n");
     printf("================================\n");
@@ -315,6 +345,10 @@ int main() {
     // Test basic 2D FFT
     int rows = 16, cols = 16;
     complex_t** test_image = allocate_2d_complex(rows, cols);
+    if (!test_image) {
+        fprintf(stderr, "image_fft: allocation failed\n");
+        return 1;
+    }
     
     // Create simple test pattern
     printf("\nTest 1: Simple 2D sinusoid\n");
@@ -324,6 +358,11 @@ int main() {
     
     // Forward 2D FFT
     complex_t** spectrum = allocate_2d_complex(rows, cols);
+    if (!spectrum) {
+        fprintf(stderr, "image_fft: allocation failed\n");
+        free_2d_complex(test_image, rows);
+        return 1;
+    }
     for (int i = 0; i < rows; i++) {
         memcpy(spectrum[i], test_image[i], cols * sizeof(complex_t));
     }
@@ -368,6 +407,12 @@ int main() {
     // Create test image with noise
     rows = cols = 64;
     complex_t** noisy_image = allocate_2d_complex(rows, cols);
+    if (!noisy_image) {
+        fprintf(stderr, "image_fft: allocation failed\n");
+        free_2d_complex(test_image, 16);
+        free_2d_complex(spectrum, 16);
+        return 1;
+    }
     
     // Add low frequency signal + high frequency noise
     for (int i = 0; i < rows; i++) {
@@ -382,6 +427,13 @@ int main() {
     
     // Apply low-pass filter
     complex_t** filtered = allocate_2d_complex(rows, cols);
+    if (!filtered) {
+        fprintf(stderr, "image_fft: allocation failed\n");
+        free_2d_complex(test_image, 16);
+        free_2d_complex(spectrum, 16);
+        free_2d_complex(noisy_image, rows);
+        return 1;
+    }
     for (int i = 0; i < rows; i++) {
         memcpy(filtered[i], noisy_image[i], cols * sizeof(complex_t));
     }
@@ -404,6 +456,10 @@ int main() {
     for (int s = 0; s < 4; s++) {
         int size = test_sizes[s];
         complex_t** seed = allocate_2d_complex(size, size);
+        if (!seed) {
+            fprintf(stderr, "image_fft: allocation failed\n");
+            break;
+        }
         
         // Fill with random data
         for (int i = 0; i < size; i++) {

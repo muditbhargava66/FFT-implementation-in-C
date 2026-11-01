@@ -70,7 +70,12 @@ const char* frequency_to_note_name(double freq) {
 
 // Simple peak detection for fundamental frequency
 double detect_pitch_peak(complex_t* spectrum, int n, double sample_rate) {
+    if (!spectrum || n < 4 || sample_rate <= 0.0)
+        return 0.0;
+
     double* magnitude = compute_magnitude(spectrum, n);
+    if (!magnitude)
+        return 0.0;
     
     // Find peak in reasonable frequency range (80-2000 Hz)
     int min_bin = (int)(80 * n / sample_rate);
@@ -92,9 +97,14 @@ double detect_pitch_peak(complex_t* spectrum, int n, double sample_rate) {
         double y1 = magnitude[peak_bin - 1];
         double y2 = magnitude[peak_bin];
         double y3 = magnitude[peak_bin + 1];
+        double denom = y1 - 2*y2 + y3;
         
-        double delta = 0.5 * (y1 - y3) / (y1 - 2*y2 + y3);
-        peak_bin += delta;
+        if (denom != 0.0) {
+            double delta = 0.5 * (y1 - y3) / denom;
+            if (delta < -0.5) delta = -0.5;
+            if (delta > 0.5) delta = 0.5;
+            peak_bin += delta;
+        }
     }
     
     free(magnitude);
@@ -104,8 +114,18 @@ double detect_pitch_peak(complex_t* spectrum, int n, double sample_rate) {
 
 // Harmonic Product Spectrum (HPS) method
 double detect_pitch_hps(complex_t* spectrum, int n, double sample_rate, int harmonics) {
+    if (!spectrum || n < 4 || sample_rate <= 0.0 || harmonics < 1)
+        return 0.0;
+
     double* magnitude = compute_magnitude(spectrum, n);
-    double* hps = (double*)malloc((n/2 + 1) * sizeof(double));
+    if (!magnitude)
+        return 0.0;
+
+    double* hps = (double*)malloc((size_t)(n/2 + 1) * sizeof(double));
+    if (!hps) {
+        free(magnitude);
+        return 0.0;
+    }
     
     // Initialize HPS with original spectrum
     for (int i = 0; i <= n/2; i++) {
@@ -153,9 +173,14 @@ double detect_pitch_hps(complex_t* spectrum, int n, double sample_rate, int harm
 
 // Autocorrelation-based pitch detection
 double detect_pitch_autocorr(complex_t* signal, int n, double sample_rate) {
+    if (!signal || n < 4 || sample_rate <= 0.0)
+        return 0.0;
+
     // Compute autocorrelation using FFT
     complex_t* signal_copy = allocate_complex_array(n);
-    memcpy(signal_copy, signal, n * sizeof(complex_t));
+    if (!signal_copy)
+        return 0.0;
+    memcpy(signal_copy, signal, (size_t)n * sizeof(complex_t));
     
     // FFT
     radix2_dit_fft(signal_copy, n, FFT_FORWARD);

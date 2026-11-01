@@ -203,8 +203,17 @@ void benchmark_optimizations() {
         complex_t* x_naive = allocate_complex_array(n);
         complex_t* x_opt = allocate_complex_array(n);
         complex_t* x_cached = allocate_complex_array(n);
-        double* x_real = (double*)malloc(n * sizeof(double));
+        double* x_real = (double*)malloc((size_t)n * sizeof(double));
         complex_t* X_real = allocate_complex_array(n);
+        if (!x_naive || !x_opt || !x_cached || !x_real || !X_real) {
+            free_complex_array(x_naive);
+            free_complex_array(x_opt);
+            free_complex_array(x_cached);
+            free(x_real);
+            free_complex_array(X_real);
+            printf("  skipped (allocation failed)\n");
+            continue;
+        }
         
         // Generate test data
         for (int i = 0; i < n; i++) {

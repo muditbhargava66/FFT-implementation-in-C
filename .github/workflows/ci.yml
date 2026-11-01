@@ -18,8 +18,8 @@ concurrency:
 # C builds run on Linux (GCC and Clang), macOS (Apple Clang), and Windows under
 # MSYS2/MinGW-w64 (GCC and clang). Windows steps have to run inside the MSYS2
 # shell, so that job carries its own compiler matrix; the macOS job uses the
-# runner's default toolchain. The docs job is independent and builds MkDocs in
-# strict mode.
+# runner's default toolchain. A separate Linux job builds with ASan and UBSan.
+# The docs job is independent and builds MkDocs in strict mode.
 #
 # The GPU backend is left off everywhere. FFT_ENABLE_GPU defaults to OFF, the
 # CUDA sources have not been run against real hardware, and a CI lane that
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.cc }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_C_FLAGS=-Werror
 
       - name: Build
         run: cmake --build build 2>&1 | tee build.log
@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DCMAKE_C_FLAGS=-Werror
 
       - name: Build
         run: cmake --build build 2>&1 | tee build.log
@@ -113,6 +113,44 @@ jobs:
             ./build/bin/$app >/dev/null
           done
           printf "\n" | ./build/bin/realtime_analyzer >/dev/null
+
+  sanitizers:
+    name: Linux / ASan + UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build
+
+      # halt_on_error makes UBSan abort on the first report so a diagnostic is
+      # not hidden inside a still-exiting-zero program. Leak detection is on
+      # because this runner supports it; the macOS local runs could not.
+      - name: Test
+        run: |
+          ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            ctest --test-dir build --output-on-failure
+
+      - name: Run application demos
+        run: |
+          for app in audio_spectrum convolution demo_features fft_filtering \
+                     image_fft pitch_detection power_spectrum gpu_benchmark; do
+            echo "== $app"
+            ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+              ./build/bin/$app >/dev/null
+          done
+          printf "\n" | ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            timeout 120 ./build/bin/realtime_analyzer >/dev/null
 
   windows-mingw:
     name: Windows / MinGW-w64 ${{ matrix.compiler }} (ucrt64)
@@ -176,6 +214,7 @@ jobs:
             echo "== $app"
             ./build/bin/$app.exe >/dev/null
           done
+          printf "\n" | ./build/bin/realtime_analyzer.exe >/dev/null
 
   docs:
     name: Docs / MkDocs (strict)

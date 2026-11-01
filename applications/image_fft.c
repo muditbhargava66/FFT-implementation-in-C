@@ -54,17 +54,20 @@ void fft_2d(complex_t** data, int rows, int cols, fft_direction dir) {
         return;
     }
     
+    // Allocate the column buffer before the row pass: if it fails, the input
+    // is left untouched instead of partly transformed.
+    complex_t* column = allocate_complex_array(rows);
+    if (!column) {
+        fprintf(stderr, "fft_2d: could not allocate the column buffer\n");
+        return;
+    }
+
     // Transform rows
     for (int i = 0; i < rows; i++) {
         radix2_dit_fft(data[i], cols, dir);
     }
     
     // Transform columns
-    complex_t* column = allocate_complex_array(rows);
-    if (!column) {
-        fprintf(stderr, "fft_2d: could not allocate the column buffer\n");
-        return;
-    }
     for (int j = 0; j < cols; j++) {
         // Extract column
         for (int i = 0; i < rows; i++) {

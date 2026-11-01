@@ -87,8 +87,9 @@ bluestein_fft(signal, n, FFT_FORWARD);   /* any n up to 2^29 */
 ## Mixed-radix
 
 Recursive Cooley-Tukey using the smallest prime factor at each step. Prime
-leaves fall back to a direct DFT. The planner chooses it for lengths that
-factor into 2, 3, 5 and 7 when `FFT_CONSERVE_MEMORY` is set.
+leaves fall back to a direct DFT. Under `FFT_CONSERVE_MEMORY` the planner
+chooses it for lengths whose prime factors are all 2, 3, 5 or 7 and number at
+least three; smaller composites still go to Bluestein.
 
 ```c
 mixed_radix_fft(signal, n, FFT_FORWARD);
@@ -104,9 +105,9 @@ The planner uses these rules by default (`FFT_ESTIMATE`):
 
 - Power-of-two lengths below 512: radix-2 DIT.
 - Power-of-two lengths from 512 up: radix-4.
-- Non-power-of-two lengths that factor into small primes: Bluestein, unless
-  `FFT_CONSERVE_MEMORY` selects mixed-radix.
-- Other non-power-of-two lengths: Bluestein.
+- Non-power-of-two lengths: Bluestein, unless `FFT_CONSERVE_MEMORY` is set and
+  the length is highly composite (at least three factors drawn from 2, 3, 5 and
+  7), in which case mixed-radix.
 
 `FFT_MEASURE` times the candidates instead of using the rules, then caches the
 result. It is worth using when a program plans once and executes many times.

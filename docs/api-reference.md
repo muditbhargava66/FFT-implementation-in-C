@@ -1,7 +1,7 @@
 # API Reference
 
 The public headers are `include/fft_common.h`, `include/fft_algorithms.h`,
-`include/fft_auto.h` and `include/fft_gpu.h`.
+`include/fft_auto.h`, `include/fft_utils.h` and `include/fft_gpu.h`.
 
 ## Error handling
 
@@ -20,10 +20,9 @@ leave its buffer partly modified when it fails.
 | `FFT_ERR_UNSUPPORTED` (-5) | The operation is not supported by this plan, e.g. `fft_execute_dft()` on a real-valued plan. |
 
 Discarding the return value is legal C, but then a failed transform is
-indistinguishable from a successful one. `CHECK_POWER_OF_TWO(n)` is an
-abort-on-error macro for standalone programs: it prints a message and calls
-`exit()`. Library code uses `FFT_REQUIRE_POW2(n)`, which returns `FFT_ERR_SIZE`
-from the enclosing function.
+indistinguishable from a successful one. Inside a function that returns
+`fft_error_t`, `FFT_REQUIRE_POW2(n)` returns `FFT_ERR_SIZE` when `n` is not a
+power of two.
 
 ## Core transforms
 
@@ -50,10 +49,10 @@ Size requirements:
 | `radix4_fft` | power of two (one leading radix-2 stage when `log2(n)` is odd) |
 | `split_radix_fft` | power of two |
 | `bluestein_fft` | any length up to 2^29 |
-| `mixed_radix_fft` | any length; factors 2, 3, 5 and 7 are used, and a prime length falls back to a direct DFT |
+| `mixed_radix_fft` | any length; composite lengths are factored recursively, and a prime length falls back to a direct DFT |
 | `naive_dft`, `optimized_dft` | any length; O(n²) reference implementations |
 
-The sixteen convenience wrappers (`fft_radix2_dit`, `ifft_radix2_dit`, and so
+The fourteen convenience wrappers (`fft_radix2_dit`, `ifft_radix2_dit`, and so
 on) take `(complex_t *x, int n)` and return `fft_error_t`.
 
 `mixed_radix_fft_recursive(x, n, stride, dir)` is exposed for callers that
@@ -260,6 +259,54 @@ double *compute_power_spectrum(complex_t *fft_result, int n);
 
 The three `compute_*` functions return a `malloc`'d array of `n` doubles that
 the caller frees.
+
+Signal generation, extra windows, file I/O and spectrum helpers are declared in
+`fft_utils.h`:
+
+```c
+void generate_chirp_signal(complex_t *signal, int n, double f_start,
+                           double f_end, double sample_rate);
+void generate_noise(complex_t *signal, int n, double amplitude,
+                    unsigned int seed);
+void generate_multi_tone(complex_t *signal, int n, double *frequencies,
+                         double *amplitudes, int num_tones, double sample_rate);
+void apply_window_kaiser(complex_t *signal, int n, double beta);
+void apply_window_tukey(complex_t *signal, int n, double alpha);
+int save_complex_array(const char *filename, complex_t *data, int n);
+int load_complex_array(const char *filename, complex_t **data, int *n);
+void find_spectral_peaks(complex_t *spectrum, int n, double sample_rate,
+                         double *peak_freqs, double *peak_mags, int *num_peaks,
+                         int max_peaks);
+double compute_snr(complex_t *signal, complex_t *noise, int n);
+void print_spectrum_plot(complex_t *spectrum, int n, double sample_rate,
+                         int width);
+void save_gnuplot_script(const char *script_name, const char *data_file,
+                         const char *output_image, const char *title);
+complex_t *zero_pad(complex_t *signal, int original_size, int padded_size);
+void frequency_shift(complex_t *signal, int n, double shift_freq,
+                     double sample_rate);
+```
+
+`generate_chirp_signal` sweeps linearly from `f_start` to `f_end` over
+`n / sample_rate` seconds and integrates the phase, so the instantaneous
+frequency follows the sweep. `apply_window_kaiser` and `apply_window_tukey` add
+two windows that are not in `fft_common.h`; a window shorter than two samples is
+left unchanged, and Tukey clamps `alpha` to the range 0 to 1.
+
+`save_complex_array` writes the comment header and one
+`index real imag magnitude phase` row per sample, returning 0 on success.
+`load_complex_array` reads that format and allocates the array. On a missing
+file, a malformed `# Size:` line, or a sample count that does not match the
+data, it returns -1 and sets `*data` to `NULL` and `*n` to 0. Free the result
+with `free_complex_array()`.
+
+`find_spectral_peaks` fills at most `max_peaks` local maxima of the positive
+half-spectrum using quadratic interpolation and sets `*num_peaks`. It sets
+`*num_peaks` to 0 and returns on invalid input. `compute_snr` returns
+`10 log10(signal_power / noise_power)` in dB, `INFINITY` when the noise power is
+zero, and `NAN` for invalid arguments. `zero_pad` returns a new array of
+`padded_size` samples, or `NULL` if `padded_size < original_size` or allocation
+fails. The plot, script and modulation helpers do nothing on invalid input.
 
 Window functions (implemented in `utils/window_functions.c`):
 

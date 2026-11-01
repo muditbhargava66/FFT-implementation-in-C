@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-11-01
+
+3.2.0 exposes the utility module that the library already compiled, fixes the
+bugs in it, and tightens CI. No kernel, planner or wisdom-format change, so the
+3.0.0 timing results still describe this code.
+
+### Added
+- `include/fft_utils.h`, declaring signal generation, the Kaiser and Tukey
+  windows, file I/O, peak finding, SNR, plotting, zero padding and frequency
+  shifting. These functions were compiled into the library without a
+  declaration, so outside code could not call them.
+- `tests/test_utils.c` with 40 checks, registered as a second CTest test.
+- Linux ASan/UBSan CI job with leak detection, running both test binaries and
+  every application demo.
+
+### Fixed
+- `generate_chirp_signal()` multiplied the instantaneous frequency by time
+  instead of integrating it, which swept at twice the requested rate.
+- `apply_window_kaiser()` divided by zero for a one-sample window;
+  `apply_window_tukey()` did the same and mishandled `alpha` outside 0..1.
+- `find_spectral_peaks()` dereferenced a failed `compute_magnitude()` result and
+  divided by a zero interpolation denominator. It now clears `*num_peaks`,
+  rejects invalid input, and clamps the interpolated offset to one bin.
+- `compute_snr()` divided by zero for an empty array; it returns `NAN` for
+  invalid arguments and keeps `INFINITY` for zero noise.
+- `save_complex_array()` and `load_complex_array()` dereferenced null pointers
+  and printed to stderr from inside the library. They now reject null or empty
+  input, return -1 on failure, and leave `*data` as `NULL` and `*n` as 0.
+  `load_complex_array()` also rejects a malformed `# Size:` header.
+- `zero_pad()`, the first-pass plotting helpers, the gnuplot script writer and
+  `frequency_shift()` now return without touching memory when handed null or
+  invalid arguments.
+- The recursive FFT's header comment claimed O(n log n) space; peak usage is
+  O(n).
+
+### Changed
+- Windows CI runs `realtime_analyzer`, so all nine demos are exercised there.
+- Linux and macOS CI configure with `-Werror`; the warning grep stays as a
+  second check.
+- `docs/requirements.txt` raises the floors to mkdocs 1.6.1 and
+  mkdocs-material 9.8.0. Dependabot's commit prefix no longer doubles the
+  `(deps)` scope.
+- Removed the public `CHECK_POWER_OF_TWO` macro. It printed a message and
+  called `exit()`, no library code used it, and `image_fft` was its only caller.
+  Use `FFT_REQUIRE_POW2` or `is_power_of_two()` instead.
+
+### Documentation
+- Corrected the algorithm count, the number of convenience wrappers, the DIF
+  output order, the Bluestein length limit, the planner's highly-composite
+  rule, the forward/inverse scaling note and the recursive FFT's memory claim.
+- Removed duplicated performance tables and repeated error-contract text; the
+  README links to the stable documentation version.
+- Rewrote the core-algorithm README, which still used repeated template blocks
+  and star ratings that contradicted the measured results.
+
 ## [3.1.0] - 2026-10-24
 
 3.1.0 is a correctness and portability release. It fixes the planner and 2-D
@@ -261,7 +316,8 @@ were removed in 3.0.0; see that entry for the details.*
 - Example programs
 - Basic documentation
 
-[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v1.0.0...v2.0.0

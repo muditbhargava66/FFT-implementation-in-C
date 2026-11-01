@@ -2,17 +2,17 @@
 
 # FFT Implementation in C
 
-[![Documentation](https://app.readthedocs.org/projects/fft-implementation-in-c/badge/?version=latest)](https://fft-implementation-in-c.readthedocs.io/en/latest/)
+[![Documentation](https://app.readthedocs.org/projects/fft-implementation-in-c/badge/?version=stable)](https://fft-implementation-in-c.readthedocs.io/en/stable/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
 [![GPU Support](https://img.shields.io/badge/GPU-source--only-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-3.1.0-success)]()
+[![Release](https://img.shields.io/badge/release-3.2.0-success)]()
 
 </div>
 
-A C11 FFT library with eight algorithm implementations, a planning API, and
-algorithm selection based on measured cost. Builds with GCC and Clang on Linux,
-macOS and Windows (MinGW-w64). MSVC's `cl.exe` is not supported.
+A C11 FFT library with seven FFT kernels, two DFT references, a planning API,
+and algorithm selection based on measured cost. Builds with GCC and Clang on
+Linux, macOS and Windows (MinGW-w64). MSVC's `cl.exe` is not supported.
 
 ## Contents
 
@@ -64,7 +64,8 @@ ctest --test-dir build --output-on-failure
 
 The test binary is `build/bin/test_all`. It compares every implementation
 against a direct DFT computed independently inside the test file, across 30
-sizes from 1 to 16384. The benchmark suite is `build/bin/benchmark_all`.
+sizes from 1 to 16384. `build/bin/test_utils` covers the utility functions and
+file I/O. The benchmark suite is `build/bin/benchmark_all`.
 
 To build with a specific compiler:
 
@@ -79,21 +80,22 @@ binary only needs to run on the build machine.
 
 | Platform | Compiler | Result |
 | --- | --- | --- |
-| Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 release: 1361/1361 checks, 0 warnings; benchmarks 52 passed, 0 failed, 2 skipped |
-| Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.1.0 CI: ctest 1/1, 0 warnings; benchmarks 52/0/2; demos 8/8 |
-| Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.3 | 3.1.0 CI: ctest 1/1, 0 warnings; benchmarks 52/0/2; demos 8/8 |
-| Ubuntu 24.04 (x86_64) | GCC 13.3.0 | 3.1.0: 1361/1361 checks, 0 warnings with `-Werror`; benchmarks 52/0/2 |
-| Ubuntu 24.04 (x86_64) | Clang 18.1.3 | 3.1.0: 1361/1361 checks, 0 warnings with `-Werror` |
-| macOS 27, arm64 | Apple Clang 21.0.0 | 3.1.0: 1361/1361 checks, 0 warnings; benchmarks 52/0/2 |
-| macOS 27, arm64 | Homebrew GCC 16.2.0 | 3.1.0: 1361/1361 checks, 0 warnings |
+| macOS 27, arm64 | Apple Clang 21.0.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
+| macOS 27, arm64 | Homebrew GCC 16.2.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
+| Ubuntu 24.04, arm64 (container) | GCC 13.3.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
+| Ubuntu 24.04, arm64 (container) | Clang 18.1.3 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
+| Ubuntu 24.04, arm64 (container) | Clang 18.1.3, ASan + UBSan | 3.2.0: 1361/1361 + 40/40 checks, no sanitizer reports; demos 9/9 |
+| Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.1.0 CI: ctest passed, 0 warnings; benchmarks 52/0/2; demos 8/8 |
+| Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.3 | 3.1.0 CI: ctest passed, 0 warnings; benchmarks 52/0/2; demos 8/8 |
+| Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 timing machine: 1361/1361 checks; benchmarks 52/0/2 |
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
-The Windows 11 row is the 3.0.0 release measurement. The other rows were run on
-the 3.1.0 source: Ubuntu 24.04 in a container, macOS on an Apple M1 Pro, and
-the two Windows rows by the 3.1.0 CI workflow on `windows-latest`. The eight
-demo binaries used by CI exit 0 on all three platforms; `realtime_analyzer` is
-exercised on macOS and Linux. Performance figures below are from the Windows
-3.0.0 machine; they are not a cross-platform comparison.
+The 3.2.0 rows were run locally on the release branch: Ubuntu 24.04 in a
+container on arm64, and macOS on an Apple M1 Pro. The Windows rows are the
+3.1.0 CI results. The 3.2.0 workflow adds a Linux ASan/UBSan lane and runs
+`realtime_analyzer` on Windows too; those results will be recorded here after
+the release branch runs. Performance figures below are from the Windows 3.0.0
+machine; they are not a cross-platform comparison.
 
 ## Usage
 
@@ -191,41 +193,23 @@ fails later.
 
 ## Performance
 
-Costs below are relative to radix-2 DIT at the same `n`, so below 1.00 is
-faster. They were measured on an Intel i7-9750H (Windows 11, MinGW-w64 GCC
-13.2.0) with the default `-O3` build. Ratios are used because absolute times on
-that laptop move by up to 2.9x between runs of the same binary; the ranges are
-in [docs/performance.md](docs/performance.md).
-
-| n | Radix-2 DIF | Radix-4 | Split-Radix | Mixed-Radix | Bluestein |
-| --- | --- | --- | --- | --- | --- |
-| 16 | 1.06 | 1.41 | 1.64 | 0.99 | 11.11 |
-| 64 | 1.06 | 1.21 | 2.44 | 1.02 | 11.30 |
-| 256 | 1.00 | 1.10 | 2.38 | 0.99 | 11.90 |
-| 512 | 0.95 | **0.83** | 2.00 | 1.01 | 10.34 |
-| 1024 | 0.97 | 0.97 | 2.30 | 1.04 | 11.41 |
-| 4096 | 1.02 | **0.89** | 1.99 | 1.03 | 9.54 |
-| 16384 | 1.00 | **0.93** | 2.86 | 1.01 | 9.68 |
-
-Mixed-radix forwards power-of-two lengths to radix-2 DIT, so its column is the
-control: it must read 1.00, and it measures 0.99-1.04. That is the resolution of
-the method. Radix-4 wins from 512 up, which is where `select_algorithm()` puts
-the crossover. Split-radix has the lowest multiplication count but is 1.6-2.9x
-slower in wall time because of its memory traffic.
-
-For non-power-of-two lengths Bluestein beat mixed-radix at every size tested
-(97, 251, 360, 1000, 1021, 4095, 6561), by 2.1x at 360 and 241x at the prime
-1021. Mixed-radix stays available for callers that pass `FFT_CONSERVE_MEMORY`,
-where Bluestein's roughly 9n complex-numbers of scratch do not fit.
+The [performance guide](docs/performance.md) has the measured ratios, the
+harness and the noise floor. In short, radix-4 beats radix-2 DIT from n=512 on
+the measured machine, radix-2 DIF matches DIT, and split-radix is 1.6-2.9x
+slower in wall time despite the lowest multiplication count. For
+non-power-of-two lengths Bluestein beat mixed-radix at every size tested, by
+2.1x at 360 and 241x at the prime 1021. The numbers come from a Windows 11
+machine running the 3.0.0 kernels; later releases do not change the kernels, so
+they still describe this code.
 
 ## Documentation
 
 The full docs are at <https://fft-implementation-in-c.readthedocs.io/>:
 
-- [Getting started](https://fft-implementation-in-c.readthedocs.io/en/latest/getting-started/)
-- [API reference](https://fft-implementation-in-c.readthedocs.io/en/latest/api-reference/)
-- [Algorithm guide](https://fft-implementation-in-c.readthedocs.io/en/latest/algorithms/)
-- [Performance guide](https://fft-implementation-in-c.readthedocs.io/en/latest/performance/)
+- [Getting started](https://fft-implementation-in-c.readthedocs.io/en/stable/getting-started/)
+- [API reference](https://fft-implementation-in-c.readthedocs.io/en/stable/api-reference/)
+- [Algorithm guide](https://fft-implementation-in-c.readthedocs.io/en/stable/algorithms/)
+- [Performance guide](https://fft-implementation-in-c.readthedocs.io/en/stable/performance/)
 
 ## Project layout
 
@@ -265,6 +249,16 @@ instead of transforming the buffers stored in the plan. `fft_plan_c2r_1d()`
 now records its wisdom under `FFT_REAL_OUTPUT`; cached c2r choices from older
 versions no longer satisfy `FFT_WISDOM_ONLY`, so re-plan with `FFT_MEASURE` if
 you depend on them.
+
+3.2 adds `include/fft_utils.h`, which declares the utilities that
+`utils/fft_utils.c` already compiled: signal generation, the Kaiser and Tukey
+windows, file I/O, peak finding, SNR, zero padding and frequency shifting.
+`load_complex_array()` and `save_complex_array()` now return -1 without printing
+when a file cannot be opened, `compute_snr()` returns `NAN` for invalid
+arguments, and the chirp generator integrates the sweep phase correctly. No
+kernel, planner or wisdom-format change; 3.1 wisdom files load unchanged. The
+public `CHECK_POWER_OF_TWO` macro is removed because it called `exit()`; use
+`is_power_of_two()` or `FFT_REQUIRE_POW2` instead.
 
 ## License
 

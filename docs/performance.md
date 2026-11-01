@@ -1,9 +1,9 @@
 # Performance Guide
 
 The numbers on this page were measured on the Windows machine described below
-using the 3.0.0 kernels. Release 3.1.0 does not change the kernels, so they
-still describe it. They are not a cross-platform comparison. Correctness was
-re-checked on Linux and macOS (see the README).
+using the 3.0.0 kernels. Releases 3.1.0 and 3.2.0 do not change the kernels, so
+they still describe them. They are not a cross-platform comparison. Correctness
+was re-checked on Linux and macOS (see the README).
 
 ## How the numbers were measured
 
@@ -47,22 +47,13 @@ Range in parentheses is the observed min-max across the sampled runs.
 | 4096 | 1.02 (0.97-1.05) | **0.89 (0.83-0.96)** | 1.99 (1.91-2.09) | 1.03 (0.97-1.08) | 9.54 (9.42-9.73) |
 | 16384 | 1.00 (0.95-1.05) | **0.93 (0.85-0.99)** | 2.86 (2.58-3.15) | 1.01 (0.96-1.09) | 9.68 (9.62-9.78) |
 
-What the table shows:
+Two things the table cannot show by itself:
 
-- **Mixed-radix is the control.** `mixed_radix_fft()` forwards power-of-two
-  lengths to `radix2_dit_fft()`, so its column must read 1.00. It measures
-  0.99-1.04, which is the resolution of the method.
-- **Radix-2 DIT and DIF are indistinguishable** at these sizes, 0.95-1.07.
-- **Radix-4 crosses over between 256 and 512.** It is slower at 16 (1.41x) and
-  64 (1.21x), a wash at 256, and faster from 512 up (0.83x, 0.89x, 0.93x). That
-  is where `select_algorithm()` puts the threshold. Below it, the O(n)
-  digit-reversal buffer costs more than the saved multiplications.
-- **Split-radix is slower in wall time**, 1.6-2.9x, despite the lowest
-  multiplication count. Its recursion moves roughly 2.5n elements per level, and
-  memory traffic is the constraint here.
-- **Bluestein costs about 10x at a power of two** because it pads the
-  convolution to `next_power_of_two(2n-1)` and runs three transforms of that
-  length.
+`mixed_radix_fft()` forwards power-of-two lengths to `radix2_dit_fft()`, so its
+column is the control; the 0.99-1.04 spread is the resolution of the method.
+Split-radix has the lowest multiplication count but is 1.6-2.9x slower in wall
+time because its recursion moves about 2.5n elements per level, and memory
+traffic is what binds here.
 
 ## Non-power-of-two sizes
 

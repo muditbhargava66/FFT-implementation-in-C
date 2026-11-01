@@ -7,7 +7,9 @@
  * Divide-and-conquer implementation chosen for clarity rather than speed.
  * 
  * Time Complexity: O(n log n)
- * Space Complexity: O(n log n) due to recursion
+ * Space Complexity: O(n) peak; each level allocates two half-size buffers and
+ * frees them before returning, so the live set along the recursion is
+ * n + n/2 + n/4 + ... rather than n per level.
  */
 
 // Recursive FFT function

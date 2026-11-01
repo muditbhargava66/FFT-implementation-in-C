@@ -733,7 +733,7 @@ void fft_free(void *p) {
 
 // Version string
 const char *fft_version(void) {
-  return "FFT Library v3.1.0 (2026-10-24) - Automatic Algorithm Selection";
+  return "FFT Library v3.2.0 (2026-11-01) - Automatic Algorithm Selection";
 }
 
 /*
@@ -832,7 +832,7 @@ fft_plan_t fft_plan_dft_2d(int rows, int cols, complex_t *in, complex_t *out,
 /* Export wisdom as a human-readable string.
    Format: one line per entry: "<n> <flags> <algo>\n".
    The header carries the wisdom-format version (v3.0.0), not the library
-   version, so files written by 3.0 remain valid in 3.1. */
+   version, so older files remain valid. */
 char *fft_export_wisdom_to_string(void) {
   /* Header + up to WISDOM_MAX entries of ~40 chars each */
   size_t cap = 64 + (size_t)g_wisdom_count * 48;
@@ -892,7 +892,7 @@ int fft_import_wisdom_from_string(const char *wisdom) {
 #ifndef LIB_BUILD
 
 int main() {
-  printf("FFT Auto - Automatic Algorithm Selection v3.1.0\n");
+  printf("FFT Auto - Automatic Algorithm Selection v3.2.0\n");
   printf("===============================================\n\n");
 
   int test_sizes[] = {16, 64, 256, 1024, 97, 360, 1000};

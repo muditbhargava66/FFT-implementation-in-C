@@ -1,113 +1,62 @@
 # Core FFT Algorithms
 
-This directory contains implementations of fundamental FFT algorithms.
+Seven 1-D kernels, all compiled into `libfft_lib_c.a`. Each source file also
+keeps a demonstration `main()` behind `#ifndef LIB_BUILD`; those demos are not
+self-contained (they call each other), so the CMake build does not compile them.
+Use `test_all` or `benchmark_all` instead.
 
-## Algorithms Included
+| File | Lengths | Scratch | Notes |
+|------|---------|---------|-------|
+| `radix2_dit.c` | power of 2 | none | In place; bit-reverses the input before the butterflies. The baseline for every ratio on the performance page. |
+| `radix2_dif.c` | power of 2 | none | Bit-reversal at the end instead of the start. Same cost and natural-order output as DIT; choose by data flow, not speed. |
+| `radix4.c` | power of 2, not only power of 4 | O(n) digit reversal | A leading radix-2 stage covers an odd `log2(n)`. Saves 25% of the multiplications; measured faster than DIT from n=512, slower at 16-256. `FFT_CONSERVE_MEMORY` selects DIT instead. |
+| `split_radix.c` | power of 2 | O(n) | Lowest multiplication count, but 1.6-2.9x slower than DIT in the measured runs: its recursion moves about 2.5n elements per level. |
+| `bluestein.c` | any length up to 2^29 | O(n) | Chirp z-transform; pads the convolution to `next_power_of_two(2n-1)`. About 10x DIT at a power of two, and the choice for prime lengths. |
+| `mixed_radix.c` | any composite | O(n) | Recursive Cooley-Tukey factorisation with natural-order output. Prime lengths fall back to a direct O(p^2) DFT, which is why the planner sends primes to Bluestein. |
+| `recursive_fft.c` | power of 2 | O(n) peak | Divide-and-conquer reference implementation, kept for clarity. Not in the benchmark table. |
 
-### 1. Radix-2 DIT (radix2_dit.c)
-- **Description**: Decimation-in-Time radix-2 FFT
-- **Complexity**: O(n log n)
-- **Requirements**: Input size must be power of 2
-- **Best for**: General purpose, well-balanced performance
+The relative speeds are the Windows 11 figures from
+[the performance guide](../../docs/performance.md#power-of-two-sizes); other
+machines and compilers will move them.
 
-### 2. Radix-2 DIF (radix2_dif.c)
-- **Description**: Decimation-in-Frequency radix-2 FFT
-- **Complexity**: O(n log n)
-- **Requirements**: Input size must be power of 2
-- **Best for**: Systems where output can be in bit-reversed order
-
-### 3. Radix-4 (radix4.c)
-- **Description**: Processes 4 points at a time, with one leading radix-2 stage
-  when `log2(n)` is odd
-- **Complexity**: O(n log n) with 25% fewer multiplications than radix-2
-- **Requirements**: Input size must be a power of 2 (not only a power of 4)
-- **Memory**: O(n) digit-reversal scratch; use `FFT_CONSERVE_MEMORY` to select
-  in-place radix-2 DIT instead
-- **Best for**: When multiplication is expensive
-
-### 4. Split-Radix (split_radix.c)
-- **Description**: Hybrid of radix-2 and radix-4
-- **Complexity**: O(n log n) with lowest operation count
-- **Requirements**: Input size must be power of 2
-- **Best for**: Maximum computational efficiency
-
-### 5. Bluestein's Algorithm (bluestein.c)
-- **Description**: FFT for arbitrary input sizes using chirp z-transform
-- **Complexity**: O(n log n)
-- **Requirements**: None (works for any size)
-- **Best for**: Non-power-of-2 sizes
-
-### 6. Mixed-Radix (mixed_radix.c)
-- **Description**: Handles composite sizes by factorization
-- **Complexity**: O(n log n) for highly composite n
-- **Requirements**: None
-- **Best for**: Sizes with small prime factors
-
-### 7. Recursive FFT (recursive_fft.c)
-- **Description**: Educational implementation showing divide-and-conquer
-- **Complexity**: O(n log n)
-- **Requirements**: Input size must be power of 2
-- **Best for**: Understanding FFT algorithm structure
-
-## Quick Comparison
-
-| Algorithm | Multiplications | Memory | Flexibility | Speed |
-|-----------|----------------|---------|-------------|--------|
-| Radix-2 DIT | n/2 log₂(n) | O(1) | Power of 2 | ★★★★☆ |
-| Radix-2 DIF | n/2 log₂(n) | O(1) | Power of 2 | ★★★★☆ |
-| Radix-4 | 3n/8 log₂(n) | O(n) | Power of 2 | ★★★★☆ |
-| Split-Radix | ~n/3 log₂(n) | O(n) | Power of 2 | ★★★★★ |
-| Bluestein | O(n log n) | O(n) | Any size | ★★★☆☆ |
-| Mixed-Radix | Varies | O(n) | Any size | ★★★☆☆ |
-| Recursive | n/2 log₂(n) | O(n log n) | Power of 2 | ★★☆☆☆ |
-
-## Usage Example
+## Usage
 
 ```c
 #include "fft_common.h"
 #include "fft_algorithms.h"
 
-int main() {
-    int n = 1024;
-    complex_t* signal = allocate_complex_array(n);
-    
-    // Generate signal
-    for (int i = 0; i < n; i++) {
-        signal[i] = sin(2 * PI * 10 * i / n);
+int main(void) {
+    enum { n = 1024 };
+    complex_t *signal = allocate_complex_array(n);
+    if (!signal)
+        return 1;
+
+    for (int i = 0; i < n; i++)
+        signal[i] = sin(2.0 * PI * 10.0 * i / n);
+
+    if (radix2_dit_fft(signal, n, FFT_FORWARD) != FFT_OK) {
+        free_complex_array(signal);
+        return 1;
     }
-    
-    // Apply FFT
-    radix2_dit_fft(signal, n, FFT_FORWARD);
-    
-    // Process spectrum...
-    
-    // Inverse FFT
-    radix2_dit_fft(signal, n, FFT_INVERSE);
-    
+
+    /* spectrum in signal[0..n/2] */
+
+    if (radix2_dit_fft(signal, n, FFT_INVERSE) != FFT_OK) {
+        free_complex_array(signal);
+        return 1;
+    }
+
+    /* the inverse divides by n, so this is the original signal again */
     free_complex_array(signal);
     return 0;
 }
 ```
 
-## Building
-
-Core algorithms are compiled into a single static library by the top-level
-CMake build; they are not built as separate programs.
+## Building and testing
 
 ```bash
 cmake -S . -B build
 cmake --build build
-```
-
-Each file also contains a demonstration `main()` guarded by `#ifndef LIB_BUILD`.
-Those demos are not self-contained: `radix4.c`, for example, calls
-`radix2_dit_fft()` from `radix2_dit.c`, and compiling both files together gives
-two `main()` functions. They are not built as standalone programs; use
-`test_all` or `benchmark_all` instead.
-
-## Testing
-
-```bash
 ctest --test-dir build
 ./build/bin/test_all        # exits non-zero if any check fails
 ```

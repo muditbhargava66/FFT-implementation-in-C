@@ -48,8 +48,10 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-`ctest` runs `build/bin/test_all`, which prints a summary line. A successful run
-ends with `1361/1361 checks passed`.
+`ctest` runs two binaries: `test_all`, which compares every implementation
+against a direct DFT, and `test_utils`, which covers the file I/O and helper
+functions. A successful `test_all` run ends with `1361/1361 checks passed`; the
+utility suite ends with `40/40 checks passed`.
 
 To choose a compiler, pass it at configure time:
 

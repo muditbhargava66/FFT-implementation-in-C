@@ -130,6 +130,12 @@ add_executable(test_all tests/test_all.c)
 target_link_libraries(test_all PRIVATE fft_lib)
 add_test(NAME test_all COMMAND test_all)
 
+# Utility functions: file I/O and the helpers that were previously compiled
+# without a public declaration.
+add_executable(test_utils tests/test_utils.c)
+target_link_libraries(test_utils PRIVATE fft_lib)
+add_test(NAME test_utils COMMAND test_utils)
+
 # Add benchmarks
 add_executable(benchmark_all benchmarks/benchmark_all.c)
 target_link_libraries(benchmark_all PRIVATE fft_lib)

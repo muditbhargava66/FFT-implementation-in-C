@@ -26,7 +26,7 @@ typedef struct {
 
 // Compute periodogram (simple PSD estimate)
 double* compute_periodogram(complex_t* signal, int n, double sample_rate) {
-    if (!signal || n < 2 || sample_rate <= 0.0)
+    if (!signal || n < 2 || !is_power_of_two(n) || sample_rate <= 0.0)
         return NULL;
 
     double* psd = (double*)malloc((size_t)(n/2 + 1) * sizeof(double));
@@ -67,8 +67,8 @@ double* compute_periodogram(complex_t* signal, int n, double sample_rate) {
 double* welch_psd(complex_t* signal, int signal_len, double sample_rate, 
                   welch_params_t* params) {
     if (!signal || !params || signal_len <= 0 || sample_rate <= 0.0 ||
-        params->window_size < 2 || params->overlap < 0 ||
-        params->overlap >= params->window_size)
+        params->window_size < 2 || !is_power_of_two(params->window_size) ||
+        params->overlap < 0 || params->overlap >= params->window_size)
         return NULL;
 
     int window_size = params->window_size;
@@ -208,7 +208,8 @@ complex_t* cross_correlation_fft(complex_t* x, complex_t* y, int n) {
 // Compute magnitude-squared coherence between two signals
 //   |Cxy(f)|^2 = |Pxy(f)|^2 / (Pxx(f) * Pyy(f))
 double* compute_coherence(complex_t* x, complex_t* y, int n, int window_size) {
-    if (!x || !y || n <= 0 || window_size < 2)
+    if (!x || !y || n <= 0 || window_size < 2 ||
+        !is_power_of_two(window_size))
         return NULL;
 
     int half = window_size / 2;

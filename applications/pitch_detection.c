@@ -173,7 +173,7 @@ double detect_pitch_hps(complex_t* spectrum, int n, double sample_rate, int harm
 
 // Autocorrelation-based pitch detection
 double detect_pitch_autocorr(complex_t* signal, int n, double sample_rate) {
-    if (!signal || n < 4 || sample_rate <= 0.0)
+    if (!signal || n < 4 || !is_power_of_two(n) || sample_rate <= 0.0)
         return 0.0;
 
     // Compute autocorrelation using FFT

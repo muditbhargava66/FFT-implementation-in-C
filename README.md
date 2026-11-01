@@ -85,17 +85,20 @@ binary only needs to run on the build machine.
 | Ubuntu 24.04, arm64 (container) | GCC 13.3.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 24.04, arm64 (container) | Clang 18.1.3 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 24.04, arm64 (container) | Clang 18.1.3, ASan + UBSan | 3.2.0: 1361/1361 + 40/40 checks, no sanitizer reports; demos 9/9 |
+| Windows x86_64 (cross-build) | MinGW-w64 GCC 16.2.0 | 3.2.0: full tree, including `test_utils.exe` and `realtime_analyzer.exe`, builds with `-Werror`; binaries not executed here |
 | Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.1.0 CI: ctest passed, 0 warnings; benchmarks 52/0/2; demos 8/8 |
 | Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.3 | 3.1.0 CI: ctest passed, 0 warnings; benchmarks 52/0/2; demos 8/8 |
 | Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 timing machine: 1361/1361 checks; benchmarks 52/0/2 |
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
 The 3.2.0 rows were run locally on the release branch: Ubuntu 24.04 in a
-container on arm64, and macOS on an Apple M1 Pro. The Windows rows are the
-3.1.0 CI results. The 3.2.0 workflow adds a Linux ASan/UBSan lane and runs
-`realtime_analyzer` on Windows too; those results will be recorded here after
-the release branch runs. Performance figures below are from the Windows 3.0.0
-machine; they are not a cross-platform comparison.
+container on arm64, and macOS on an Apple M1 Pro. The Windows x86_64 row is a
+cross-build with the same compiler version as CI; it proves the sources compile
+and link, not that the binaries run. The CI rows are the 3.1.0 results. The
+3.2.0 workflow adds a Linux ASan/UBSan lane and runs `realtime_analyzer` on
+Windows too; those results will be recorded here after the release branch runs.
+Performance figures below are from the Windows 3.0.0 machine; they are not a
+cross-platform comparison.
 
 ## Usage
 

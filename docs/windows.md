@@ -7,15 +7,15 @@ there. Current release: **3.2.0 (1 November 2026)**.
 
 | Toolchain | Status |
 | --------- | ------ |
-| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified**: 3.1.0 local run of 1361/1361 checks with GCC 13.2.0; CI with GCC 16.2.0 |
+| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified**: 1361/1361 checks locally with GCC 13.2.0 (3.0.0 source); CI with GCC 16.2.0 (3.1.0) |
 | MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI**: 3.1.0 with Clang 23.1.3; tests, benchmarks and demos pass |
 | clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
 
-The table records the 3.1.0 runs. For 3.2.0 the suite gained a second binary,
-`test_utils` (40 checks), and CI now runs `realtime_analyzer` as well. The 3.2.0
-tree cross-compiles with MinGW-w64 GCC 16.2.0 and `-Werror`; runtime results
-come from CI on `windows-latest`.
+The rows above mix the 3.0.0 local run and the 3.1.0 CI runs. For 3.2.0 the suite
+gained a second binary, `test_utils` (40 checks), and CI now runs
+`realtime_analyzer` as well. The 3.2.0 tree cross-compiles with MinGW-w64 GCC
+16.2.0 and `-Werror`; runtime results come from CI on `windows-latest`.
 
 ### Why `cl.exe` is excluded
 

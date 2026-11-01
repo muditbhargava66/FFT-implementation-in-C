@@ -35,10 +35,10 @@ references.
 real-to-complex, complex-to-real and 2-D transforms, a wisdom cache, and
 `fft_plan_algorithm_name()` to see what a plan selected.
 
-**Error handling:** every transform returns `fft_error_t`. On failure, do not
-use the output buffer: a 1-D transform may already have copied or partly
-transformed it. Out-of-place calls leave the input buffer unchanged, and the
-library never calls `exit()`.
+**Error handling:** every transform returns `fft_error_t`. A failed transform
+may leave its buffer partly modified, so do not use the output. The library
+never calls `exit()`. The failure contract and error codes are in the
+[API reference](https://fft-implementation-in-c.readthedocs.io/en/stable/api-reference/#error-handling).
 
 What it does not do:
 

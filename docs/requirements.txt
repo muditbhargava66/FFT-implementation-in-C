@@ -1,5 +1,5 @@
 # Requirements for ReadTheDocs and MkDocs
 # MkDocs 2.0 removes the plugin system and is not supported by Material yet.
-mkdocs>=1.5.3,<2.0
-mkdocs-material>=9.7.7,<10
+mkdocs>=1.6.1,<2.0
+mkdocs-material>=9.8.0,<10
 pymdown-extensions>=12.3,<13

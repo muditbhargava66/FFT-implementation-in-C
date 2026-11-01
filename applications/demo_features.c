@@ -10,9 +10,9 @@
  * 
  * Shows:
  * - Automatic algorithm selection and plan names
- * - Hardware capability reporting (CPU-only in this build)
+ * - Hardware capability reporting
+ * - CPU and optional GPU execution through the same plan API
  * - One-shot and planning API
- * - Real, 2-D and wisdom paths
  */
 
 // Generate test signal
@@ -47,6 +47,10 @@ void demo_automatic_selection(void) {
         printf("\nSize %d (%s):\n", n, size_types[i]);
         
         complex_t* data = fft_alloc_complex(n);
+        if (!data) {
+            printf("  Allocation failed for n=%d\n", n);
+            continue;
+        }
         fft_plan_t plan = fft_plan_dft_1d(n, data, data, -1, FFT_ESTIMATE);
         if (!plan) {
             printf("  Planning failed for n=%d\n", n);
@@ -105,44 +109,59 @@ void demo_gpu_acceleration(void) {
     printf("GPU Memory: %.1f GB total, %.1f GB available\n", 
            total_mem / 1e9, avail_mem / 1e9);
     
-    // Benchmark CPU vs GPU
-    printf("\nCPU vs GPU Performance:\n");
-    printf("Size    | CPU Time  | GPU Time  | Speedup\n");
-    printf("--------|-----------|-----------|--------\n");
+    /* Run the same plan through the CPU and GPU selected algorithms and
+     * compare the outputs. Timing lives in gpu_benchmark, which uses a wall
+     * clock; clock() here would not include the blocking GPU wait. */
+    int n = 4096;
+    complex_t* signal = fft_alloc_complex(n);
+    complex_t* cpu_out = fft_alloc_complex(n);
+    complex_t* gpu_out = fft_alloc_complex(n);
+    if (!signal || !cpu_out || !gpu_out) {
+        fprintf(stderr, "GPU demo: allocation failed\n");
+        fft_free(signal);
+        fft_free(cpu_out);
+        fft_free(gpu_out);
+        fft_gpu_cleanup();
+        return;
+    }
+    generate_test_signal(signal, n);
     
-    int sizes[] = {1024, 4096, 16384, 65536, 262144};
-    
-    for (int i = 0; i < 5; i++) {
-        int n = sizes[i];
-        complex_t* signal = fft_alloc_complex(n);
-        generate_test_signal(signal, n);
-        
-        // CPU timing
-        fft_plan_t cpu_plan = fft_plan_dft_1d(n, signal, signal, -1, 0);
-        clock_t start = clock();
-        for (int j = 0; j < 10; j++) {
-            fft_execute(cpu_plan);
-        }
-        clock_t end = clock();
-        double cpu_time = ((double)(end - start) / CLOCKS_PER_SEC) * 100.0; // ms per FFT
-        
-        // GPU timing
-        fft_plan_t gpu_plan = fft_plan_dft_1d(n, signal, signal, -1, FFT_PREFER_GPU);
-        start = clock();
-        for (int j = 0; j < 10; j++) {
-            fft_execute(gpu_plan);
-        }
-        end = clock();
-        double gpu_time = ((double)(end - start) / CLOCKS_PER_SEC) * 100.0;
-        
-        printf("%-7d | %7.2f ms | %7.2f ms | %.1fx\n", 
-               n, cpu_time, gpu_time, cpu_time / gpu_time);
-        
+    fft_plan_t cpu_plan = fft_plan_dft_1d(n, signal, cpu_out, -1, 0);
+    fft_plan_t gpu_plan = fft_plan_dft_1d(n, signal, gpu_out, -1, FFT_PREFER_GPU);
+    if (!cpu_plan || !gpu_plan) {
+        fprintf(stderr, "GPU demo: planning failed\n");
         fft_destroy_plan(cpu_plan);
         fft_destroy_plan(gpu_plan);
         fft_free(signal);
+        fft_free(cpu_out);
+        fft_free(gpu_out);
+        fft_gpu_cleanup();
+        return;
+    }
+
+    printf("\nCPU plan: %s\n", fft_plan_algorithm_name(cpu_plan));
+    printf("GPU plan: %s\n", fft_plan_algorithm_name(gpu_plan));
+
+    if (fft_execute(cpu_plan) != FFT_OK || fft_execute(gpu_plan) != FFT_OK) {
+        fprintf(stderr, "GPU demo: execution failed\n");
+    } else {
+        double max_err = 0.0, max_mag = 0.0;
+        for (int i = 0; i < n; i++) {
+            double err = cabs(gpu_out[i] - cpu_out[i]);
+            double mag = cabs(cpu_out[i]);
+            if (err > max_err) max_err = err;
+            if (mag > max_mag) max_mag = mag;
+        }
+        if (max_mag < 1.0) max_mag = 1.0;
+        printf("Max relative difference over %d points: %.3e\n",
+               n, max_err / max_mag);
     }
     
+    fft_destroy_plan(cpu_plan);
+    fft_destroy_plan(gpu_plan);
+    fft_free(signal);
+    fft_free(cpu_out);
+    fft_free(gpu_out);
     fft_gpu_cleanup();
 }
 
@@ -152,6 +171,10 @@ void demo_simplified_api(void) {
     
     int n = 1024;
     complex_t* signal = fft_alloc_complex(n);
+    if (!signal) {
+        printf("\n  (simplified API demo skipped: allocation failed)\n");
+        return;
+    }
     
     printf("\nLegacy API:\n");
     printf("  radix2_dit_fft(signal, n, FFT_FORWARD);\n");
@@ -177,6 +200,11 @@ void demo_simplified_api(void) {
     // Show some results
     printf("\nSpectrum peaks:\n");
     double* mag = compute_magnitude(signal, n);
+    if (!mag) {
+        printf("  (magnitude allocation failed)\n");
+        fft_free(signal);
+        return;
+    }
     for (int i = 0; i < n/2; i++) {
         if (mag[i] > 100) {  // Significant peaks
             double freq = i * 1000.0 / n;
@@ -228,15 +256,15 @@ int main() {
     demo_gpu_acceleration();
     
     // Summary
-    printf("\n\n=== Summary of Features ===\n");
-    printf("1. Automatic algorithm selection based on size and hardware\n");
-    printf("2. GPU backends in source, excluded from the default build (CPU-only)\n");
-    printf("3. Simplified API with fft_auto() function\n");
-    printf("4. Cross-platform compatibility\n");
-    printf("5. Intelligent planning with FFT_MEASURE flag\n");
-    printf("6. Hardware detection and optimization\n");
-    printf("7. Real-to-complex and complex-to-real FFT (r2c/c2r)\n");
-    printf("8. 2D FFT planning with row-column decomposition\n");
+    printf("\n\n=== What this build provides ===\n");
+    printf("1. Algorithm selection by length, flags and optional measurement\n");
+    printf("2. CPU-only by default; FFT_ENABLE_METAL adds an MPSGraph backend\n");
+    printf("3. One-shot API: fft_auto()\n");
+    printf("4. Linux, macOS and Windows (MinGW-w64) builds\n");
+    printf("5. Timing-based selection with FFT_MEASURE\n");
+    printf("6. CPU and GPU capability detection; FFT_PREFER_GPU selects the device\n");
+    printf("7. Real-to-complex and complex-to-real transforms\n");
+    printf("8. 2-D planning with row-column decomposition\n");
     printf("9. Wisdom cache for persistent algorithm selection\n");
     printf("10. Single-threaded planner; see the README's thread-safety note\n");
     

@@ -1,5 +1,6 @@
 #include "fft_common.h"
 #include "fft_algorithms.h"
+#include <limits.h>
 
 /**
  * Power Spectrum Analysis
@@ -8,29 +9,29 @@
  * and coherence, with a summary of spectral statistics.
  */
 
-// PSD estimation methods
-typedef enum {
-    PSD_PERIODOGRAM,
-    PSD_WELCH,
-    PSD_BARTLETT,
-    PSD_BLACKMAN_TUKEY
-} psd_method_t;
-
-// Welch's method parameters
+// Welch's method parameters. The periodogram helper applies a Hann window, so
+// the window type is not configurable here.
 typedef struct {
     int window_size;
     int overlap;
-    const char* window_type;
-    int num_averages;
 } welch_params_t;
 
 // Compute periodogram (simple PSD estimate)
 double* compute_periodogram(complex_t* signal, int n, double sample_rate) {
-    double* psd = (double*)malloc((n/2 + 1) * sizeof(double));
+    if (!signal || n < 2 || !is_power_of_two(n) || sample_rate <= 0.0)
+        return NULL;
+
+    double* psd = (double*)malloc((size_t)(n/2 + 1) * sizeof(double));
+    if (!psd)
+        return NULL;
     
     // Copy signal for FFT
     complex_t* x = allocate_complex_array(n);
-    memcpy(x, signal, n * sizeof(complex_t));
+    if (!x) {
+        free(psd);
+        return NULL;
+    }
+    memcpy(x, signal, (size_t)n * sizeof(complex_t));
     
     // Apply window (Hann by default)
     apply_window_hann(x, n);
@@ -57,14 +58,25 @@ double* compute_periodogram(complex_t* signal, int n, double sample_rate) {
 // Welch's method for improved PSD estimation
 double* welch_psd(complex_t* signal, int signal_len, double sample_rate, 
                   welch_params_t* params) {
+    if (!signal || !params || signal_len <= 0 || sample_rate <= 0.0 ||
+        params->window_size < 2 || !is_power_of_two(params->window_size) ||
+        params->overlap < 0 || params->overlap >= params->window_size)
+        return NULL;
+
     int window_size = params->window_size;
     int overlap = params->overlap;
     int step = window_size - overlap;
     int num_windows = (signal_len - overlap) / step;
+    if (num_windows < 1) num_windows = 1;
     
     // Allocate averaged PSD
-    double* psd_avg = (double*)calloc(window_size/2 + 1, sizeof(double));
+    double* psd_avg = (double*)calloc((size_t)(window_size/2 + 1), sizeof(double));
     complex_t* window = allocate_complex_array(window_size);
+    if (!psd_avg || !window) {
+        free(psd_avg);
+        free_complex_array(window);
+        return NULL;
+    }
     
     // Process each window
     for (int w = 0; w < num_windows; w++) {
@@ -81,6 +93,11 @@ double* welch_psd(complex_t* signal, int signal_len, double sample_rate,
         
         // Compute periodogram for this window
         double* psd_window = compute_periodogram(window, window_size, sample_rate);
+        if (!psd_window) {
+            free(psd_avg);
+            free_complex_array(window);
+            return NULL;
+        }
         
         // Accumulate
         for (int k = 0; k <= window_size/2; k++) {
@@ -102,7 +119,7 @@ double* welch_psd(complex_t* signal, int signal_len, double sample_rate,
 // Compute autocorrelation using FFT.
 // Returns a heap array the caller must release with free_complex_array().
 complex_t* autocorrelation_fft(complex_t* signal, int n) {
-    if (!signal || n <= 0) return NULL;
+    if (!signal || n <= 0 || n > INT_MAX / 2) return NULL;
 
     // Zero-pad to avoid circular correlation
     int n_fft = next_power_of_two(2 * n);
@@ -139,7 +156,7 @@ complex_t* autocorrelation_fft(complex_t* signal, int n) {
 // Cross-correlation via FFT.
 // Returns a heap array the caller must release with free_complex_array().
 complex_t* cross_correlation_fft(complex_t* x, complex_t* y, int n) {
-    if (!x || !y || n <= 0) return NULL;
+    if (!x || !y || n <= 0 || n > INT_MAX / 2) return NULL;
 
     int n_fft = next_power_of_two(2 * n);
     if (n_fft <= 0) return NULL;
@@ -183,9 +200,15 @@ complex_t* cross_correlation_fft(complex_t* x, complex_t* y, int n) {
 // Compute magnitude-squared coherence between two signals
 //   |Cxy(f)|^2 = |Pxy(f)|^2 / (Pxx(f) * Pyy(f))
 double* compute_coherence(complex_t* x, complex_t* y, int n, int window_size) {
+    if (!x || !y || n <= 0 || window_size < 2 ||
+        !is_power_of_two(window_size))
+        return NULL;
+
     int half = window_size / 2;
     int num_bins = half + 1;
-    double* coherence = (double*)malloc(num_bins * sizeof(double));
+    double* coherence = (double*)malloc((size_t)num_bins * sizeof(double));
+    if (!coherence)
+        return NULL;
 
     int overlap = half;                       /* 50 % overlap */
     int step = window_size - overlap;
@@ -193,14 +216,23 @@ double* compute_coherence(complex_t* x, complex_t* y, int n, int window_size) {
     if (num_windows < 1) num_windows = 1;
 
     /* Accumulate Pxx, Pyy, and complex Pxy per bin */
-    double* psd_xx = (double*)calloc(num_bins, sizeof(double));
-    double* psd_yy = (double*)calloc(num_bins, sizeof(double));
+    double* psd_xx = (double*)calloc((size_t)num_bins, sizeof(double));
+    double* psd_yy = (double*)calloc((size_t)num_bins, sizeof(double));
     complex_t* psd_xy = allocate_complex_array(num_bins);
-    for (int k = 0; k < num_bins; k++)
-        psd_xy[k] = 0.0;
-
     complex_t* wx = allocate_complex_array(window_size);
     complex_t* wy = allocate_complex_array(window_size);
+    if (!psd_xx || !psd_yy || !psd_xy || !wx || !wy) {
+        free(coherence);
+        free(psd_xx);
+        free(psd_yy);
+        free_complex_array(psd_xy);
+        free_complex_array(wx);
+        free_complex_array(wy);
+        return NULL;
+    }
+
+    for (int k = 0; k < num_bins; k++)
+        psd_xy[k] = 0.0;
 
     for (int w = 0; w < num_windows; w++) {
         int start = w * step;
@@ -250,15 +282,19 @@ typedef struct {
     double total_power;
 } spectral_stats_t;
 
-spectral_stats_t compute_spectral_statistics(double* psd, int n, double sample_rate) {
+spectral_stats_t compute_spectral_statistics(double* psd, int num_bins, double sample_rate) {
     spectral_stats_t stats = {0};
-    
-    double freq_bin = sample_rate / (2 * n);
+    if (!psd || num_bins < 2 || sample_rate <= 0.0)
+        return stats;
+
+    /* num_bins is N/2+1 for a real transform, so the bin spacing is
+     * sample_rate/N = sample_rate/(2*(num_bins-1)). */
+    double freq_bin = sample_rate / (2.0 * (num_bins - 1));
     double total_power = 0;
     double weighted_freq_sum = 0;
     
     // Compute total power and weighted frequency sum
-    for (int k = 0; k < n; k++) {
+    for (int k = 0; k < num_bins; k++) {
         double freq = k * freq_bin;
         total_power += psd[k];
         weighted_freq_sum += freq * psd[k];
@@ -274,7 +310,7 @@ spectral_stats_t compute_spectral_statistics(double* psd, int n, double sample_r
     
     // RMS bandwidth
     double variance = 0;
-    for (int k = 0; k < n; k++) {
+    for (int k = 0; k < num_bins; k++) {
         double freq = k * freq_bin;
         double diff = freq - stats.mean_frequency;
         variance += diff * diff * psd[k];
@@ -288,7 +324,7 @@ spectral_stats_t compute_spectral_statistics(double* psd, int n, double sample_r
     double cumulative_power = 0;
     double rolloff_threshold = 0.95 * total_power;
     
-    for (int k = 0; k < n; k++) {
+    for (int k = 0; k < num_bins; k++) {
         cumulative_power += psd[k];
         if (cumulative_power >= rolloff_threshold) {
             stats.spectral_rolloff = k * freq_bin;
@@ -307,6 +343,10 @@ void demo_signal_analysis() {
     int n = 1024;
     double sample_rate = 1000.0;
     complex_t* signal = allocate_complex_array(n);
+    if (!signal) {
+        printf("  unavailable (allocation failed)\n");
+        return;
+    }
     
     // Generate test signal with known properties
     double f1 = 50.0, f2 = 120.0;
@@ -326,6 +366,11 @@ void demo_signal_analysis() {
     // 1. Periodogram
     printf("\n1. Periodogram Analysis:\n");
     double* psd_simple = compute_periodogram(signal, n, sample_rate);
+    if (!psd_simple) {
+        printf("  unavailable (allocation failed)\n");
+        free_complex_array(signal);
+        return;
+    }
     
     printf("Frequency (Hz)\tPSD (dB/Hz)\n");
     for (int k = 0; k < 10; k++) {
@@ -338,18 +383,23 @@ void demo_signal_analysis() {
     printf("\n2. Welch's Method (reduced variance):\n");
     welch_params_t welch_params = {
         .window_size = 256,
-        .overlap = 128,
-        .window_type = "hann"
+        .overlap = 128
     };
     
     double* psd_welch = welch_psd(signal, n, sample_rate, &welch_params);
+    if (!psd_welch) {
+        printf("  unavailable (allocation failed)\n");
+        free(psd_simple);
+        free_complex_array(signal);
+        return;
+    }
     
     printf("Improved estimates at signal frequencies:\n");
     int bin_50hz = (int)(50.0 * welch_params.window_size / sample_rate);
     int bin_120hz = (int)(120.0 * welch_params.window_size / sample_rate);
     
-    printf("50 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_50hz]));
-    printf("120 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_120hz]));
+    printf("50 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_50hz] + 1e-10));
+    printf("120 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_120hz] + 1e-10));
     
     // 3. Autocorrelation
     printf("\n3. Autocorrelation Analysis:\n");
@@ -396,6 +446,10 @@ int main() {
     for (int s = 0; s < 3; s++) {
         int n = sizes[s];
         complex_t* signal = allocate_complex_array(n);
+        if (!signal) {
+            printf("N=%d: skipped (allocation failed)\n", n);
+            continue;
+        }
         
         // Generate random signal
         for (int i = 0; i < n; i++) {

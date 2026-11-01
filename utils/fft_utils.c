@@ -1,5 +1,6 @@
 #include "../include/fft_common.h"
 #include "../include/fft_algorithms.h"
+#include "../include/fft_utils.h"
 #include <time.h>
 
 /**
@@ -15,16 +16,24 @@
 
 // Signal generators with parameters
 void generate_chirp_signal(complex_t* signal, int n, double f_start, double f_end, double sample_rate) {
-    double chirp_rate = (f_end - f_start) / (n / sample_rate);
-    
+    if (!signal || n <= 0 || sample_rate <= 0.0)
+        return;
+
+    double duration = (double)n / sample_rate;
+    double chirp_rate = (f_end - f_start) / duration;
+
+    /* The phase is the integral of the instantaneous frequency. Using
+     * f(t) * t instead would sweep at twice the requested rate. */
     for (int i = 0; i < n; i++) {
-        double t = i / sample_rate;
-        double freq = f_start + chirp_rate * t;
-        signal[i] = sin(TWO_PI * freq * t);
+        double t = (double)i / sample_rate;
+        signal[i] = sin(TWO_PI * (f_start * t + 0.5 * chirp_rate * t * t));
     }
 }
 
 void generate_noise(complex_t* signal, int n, double amplitude, unsigned int seed) {
+    if (!signal || n <= 0)
+        return;
+
     srand(seed);
     
     for (int i = 0; i < n; i++) {
@@ -36,7 +45,11 @@ void generate_noise(complex_t* signal, int n, double amplitude, unsigned int see
 
 void generate_multi_tone(complex_t* signal, int n, double* frequencies, 
                         double* amplitudes, int num_tones, double sample_rate) {
-    memset(signal, 0, n * sizeof(complex_t));
+    if (!signal || !frequencies || !amplitudes || n <= 0 || num_tones <= 0 ||
+        sample_rate <= 0.0)
+        return;
+
+    memset(signal, 0, (size_t)n * sizeof(complex_t));
     
     for (int i = 0; i < n; i++) {
         for (int f = 0; f < num_tones; f++) {
@@ -46,6 +59,9 @@ void generate_multi_tone(complex_t* signal, int n, double* frequencies,
 }
 
 void apply_window_kaiser(complex_t* signal, int n, double beta) {
+    if (!signal || n <= 1)
+        return;
+
     /* Modified Bessel function I0 via series expansion */
     double i0_beta = 1.0;
     {
@@ -72,6 +88,11 @@ void apply_window_kaiser(complex_t* signal, int n, double beta) {
 }
 
 void apply_window_tukey(complex_t* signal, int n, double alpha) {
+    if (!signal || n <= 1 || alpha <= 0.0)
+        return;
+
+    if (alpha > 1.0)
+        alpha = 1.0;
     int transition = (int)(alpha * n / 2);
     
     for (int i = 0; i < n; i++) {
@@ -89,11 +110,12 @@ void apply_window_tukey(complex_t* signal, int n, double alpha) {
 
 // File I/O functions
 int save_complex_array(const char* filename, complex_t* data, int n) {
-    FILE* fp = fopen(filename, "w");
-    if (!fp) {
-        fprintf(stderr, "Error: Cannot open file %s for writing\n", filename);
+    if (!filename || !data || n <= 0)
         return -1;
-    }
+
+    FILE* fp = fopen(filename, "w");
+    if (!fp)
+        return -1;
     
     fprintf(fp, "# FFT Data File\n");
     fprintf(fp, "# Format: index real imag magnitude phase\n");
@@ -105,9 +127,12 @@ int save_complex_array(const char* filename, complex_t* data, int n) {
         fprintf(fp, "%d %e %e %e %e\n", 
                 i, creal(data[i]), cimag(data[i]), mag, phase);
     }
-    
-    fclose(fp);
-    return 0;
+
+    if (ferror(fp)) {
+        fclose(fp);
+        return -1;
+    }
+    return fclose(fp) == 0 ? 0 : -1;
 }
 
 int load_complex_array(const char* filename, complex_t** data, int* n) {
@@ -121,10 +146,8 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
         return -1;
 
     FILE* fp = fopen(filename, "r");
-    if (!fp) {
-        fprintf(stderr, "Error: Cannot open file %s for reading\n", filename);
+    if (!fp)
         return -1;
-    }
     
     char line[256];
     
@@ -133,7 +156,9 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
         if (line[0] != '#') {
             (*n)++;
         } else if (strstr(line, "Size:")) {
-            sscanf(line, "# Size: %d", n);
+            int declared = 0;
+            if (sscanf(line, "# Size: %d", &declared) == 1 && declared > 0)
+                *n = declared;
             break;
         }
     }
@@ -193,8 +218,15 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
 // Spectrum analysis utilities
 void find_spectral_peaks(complex_t* spectrum, int n, double sample_rate,
                         double* peak_freqs, double* peak_mags, int* num_peaks, int max_peaks) {
+    if (num_peaks)
+        *num_peaks = 0;
+    if (!spectrum || !peak_freqs || !peak_mags || !num_peaks || max_peaks <= 0 ||
+        n < 4 || sample_rate <= 0.0)
+        return;
+
     double* magnitude = compute_magnitude(spectrum, n);
-    *num_peaks = 0;
+    if (!magnitude)
+        return;
     
     // Find local maxima
     for (int i = 1; i < n/2 - 1 && *num_peaks < max_peaks; i++) {
@@ -203,8 +235,10 @@ void find_spectral_peaks(complex_t* spectrum, int n, double sample_rate,
             double y1 = magnitude[i-1];
             double y2 = magnitude[i];
             double y3 = magnitude[i+1];
-            
-            double delta = 0.5 * (y1 - y3) / (y1 - 2*y2 + y3);
+            double denom = y1 - 2*y2 + y3;
+            double delta = denom != 0.0 ? 0.5 * (y1 - y3) / denom : 0.0;
+            if (delta < -0.5) delta = -0.5;
+            if (delta > 0.5) delta = 0.5;
             double freq = (i + delta) * sample_rate / n;
             
             peak_freqs[*num_peaks] = freq;
@@ -217,6 +251,9 @@ void find_spectral_peaks(complex_t* spectrum, int n, double sample_rate,
 }
 
 double compute_snr(complex_t* signal, complex_t* noise, int n) {
+    if (!signal || !noise || n <= 0)
+        return NAN;
+
     double signal_power = 0;
     double noise_power = 0;
     
@@ -237,7 +274,12 @@ double compute_snr(complex_t* signal, complex_t* noise, int n) {
 
 // Visualization helpers
 void print_spectrum_plot(complex_t* spectrum, int n, double sample_rate, int width) {
+    if (!spectrum || n <= 1 || width <= 0 || sample_rate <= 0.0)
+        return;
+
     double* magnitude = compute_magnitude(spectrum, n);
+    if (!magnitude)
+        return;
     
     // Find max for scaling
     double max_mag = 0;
@@ -256,7 +298,7 @@ void print_spectrum_plot(complex_t* spectrum, int n, double sample_rate, int wid
     
     for (int i = 0; i < n/2; i += step) {
         double freq = i * sample_rate / n;
-        int bar_length = (int)(width * magnitude[i] / max_mag);
+        int bar_length = max_mag > 0 ? (int)(width * magnitude[i] / max_mag) : 0;
         
         printf("%8.1f |", freq);
         for (int j = 0; j < bar_length; j++) printf("█");
@@ -269,6 +311,9 @@ void print_spectrum_plot(complex_t* spectrum, int n, double sample_rate, int wid
 
 void save_gnuplot_script(const char* script_name, const char* data_file, 
                         const char* output_image, const char* title) {
+    if (!script_name || !data_file || !output_image || !title)
+        return;
+
     FILE* fp = fopen(script_name, "w");
     if (!fp) return;
     
@@ -286,17 +331,24 @@ void save_gnuplot_script(const char* script_name, const char* data_file,
 
 // Zero-padding utilities
 complex_t* zero_pad(complex_t* signal, int original_size, int padded_size) {
-    if (padded_size < original_size) return NULL;
+    if (!signal || original_size < 0 || padded_size < original_size)
+        return NULL;
     
     complex_t* padded = allocate_complex_array(padded_size);
-    memcpy(padded, signal, original_size * sizeof(complex_t));
-    memset(padded + original_size, 0, (padded_size - original_size) * sizeof(complex_t));
+    if (!padded)
+        return NULL;
+
+    memcpy(padded, signal, (size_t)original_size * sizeof(complex_t));
+    memset(padded + original_size, 0, (size_t)(padded_size - original_size) * sizeof(complex_t));
     
     return padded;
 }
 
 // Frequency shift (modulation)
 void frequency_shift(complex_t* signal, int n, double shift_freq, double sample_rate) {
+    if (!signal || n <= 0 || sample_rate <= 0.0)
+        return;
+
     for (int i = 0; i < n; i++) {
         double phase = TWO_PI * shift_freq * i / sample_rate;
         signal[i] *= cexp(I * phase);

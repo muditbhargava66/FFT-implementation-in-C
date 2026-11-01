@@ -24,10 +24,10 @@ run; a reviewer will ask for the output.
   cmake --build build
   ```
 
-- [ ] `ctest --test-dir build --output-on-failure` — expected **1361/1361
-      checks**, 1/1 CTest tests.
-- [ ] No new compiler warnings under `-Wall -Wextra` (CI fails on the first
-      `warning:`).
+- [ ] `ctest --test-dir build --output-on-failure` — expected **1361/1361**
+      checks in `test_all` and **40/40** in `test_utils`, 2/2 CTest tests.
+- [ ] No new compiler warnings: Linux and macOS CI builds with `-Werror`, and
+      every C job also fails on a `warning:` line in the build log.
 - [ ] `./build/bin/benchmark_all` reports `Failed: 0` (include the row count and
       elapsed time for performance changes).
 - [ ] Example programs affected by this change were run; paste the relevant

@@ -1,5 +1,6 @@
 #include "fft_common.h"
 #include "fft_algorithms.h"
+#include <limits.h>
 
 /**
  * FFT-based Filtering
@@ -33,6 +34,9 @@ typedef struct {
 
 // Generate ideal frequency response
 void generate_ideal_response(complex_t* H, int n, filter_params_t* params) {
+    if (!H || !params || n <= 0 || params->sample_rate <= 0.0)
+        return;
+
     double freq_bin = params->sample_rate / n;
     
     for (int k = 0; k < n; k++) {
@@ -70,6 +74,10 @@ void generate_ideal_response(complex_t* H, int n, filter_params_t* params) {
 
 // Apply smooth transition (raised cosine)
 void apply_transition_band(complex_t* H, int n, filter_params_t* params) {
+    if (!H || !params || n <= 0 || params->sample_rate <= 0.0 ||
+        params->transition_width <= 0.0)
+        return;
+
     double freq_bin = params->sample_rate / n;
     double transition = params->transition_width;
     
@@ -134,8 +142,15 @@ void apply_transition_band(complex_t* H, int n, filter_params_t* params) {
 
 // FFT-based filtering
 void fft_filter(complex_t* signal, int n, filter_params_t* params) {
+    if (!signal || !params || n <= 0)
+        return;
+
     // Generate filter frequency response
     complex_t* H = allocate_complex_array(n);
+    if (!H) {
+        fprintf(stderr, "fft_filter: filter response allocation failed\n");
+        return;
+    }
     generate_ideal_response(H, n, params);
     
     if (params->transition_width > 0) {
@@ -160,8 +175,12 @@ void fft_filter(complex_t* signal, int n, filter_params_t* params) {
 complex_t* design_fir_filter(int taps, filter_params_t* params) {
     if (taps < 2 || !params)
         return NULL;
+    if (taps > INT_MAX / 4)
+        return NULL;
 
     int n = next_power_of_two(taps * 4);  // Zero-pad for better frequency resolution
+    if (n <= 0)
+        return NULL;
     
     // Generate frequency response
     complex_t* H = allocate_complex_array(n);
@@ -198,6 +217,10 @@ complex_t* design_fir_filter(int taps, filter_params_t* params) {
 void plot_filter_response(filter_params_t* params, const char* title) {
     int n = 512;
     complex_t* H = allocate_complex_array(n);
+    if (!H) {
+        fprintf(stderr, "plot_filter_response: allocation failed\n");
+        return;
+    }
     
     generate_ideal_response(H, n, params);
     apply_transition_band(H, n, params);
@@ -275,6 +298,12 @@ int main() {
     // Analyze filtered signal
     radix2_dit_fft(signal, signal_length, FFT_FORWARD);
     double* mag = compute_magnitude(signal, signal_length);
+    if (!mag) {
+        fprintf(stderr, "fft_filtering: magnitude allocation failed\n");
+        free_complex_array(signal);
+        free_complex_array(original);
+        return 1;
+    }
     
     printf("\nFiltered signal spectrum (first 10 bins):\n");
     for (int i = 0; i < 10; i++) {
@@ -328,6 +357,10 @@ int main() {
     printf("=====================\n");
     
     fft_timer_t timer;
+
+    /* The analysis above transformed the working buffer; start the timing pass
+     * from the original signal so the filter sees a full-scale input. */
+    memcpy(signal, original, (size_t)signal_length * sizeof(complex_t));
 
     /* No time-domain FIR path is implemented here, so no FIR figure is printed.
      * The previous code timed an empty block and reported 0.000 ms as

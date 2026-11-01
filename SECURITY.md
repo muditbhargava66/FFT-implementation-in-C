@@ -4,15 +4,17 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 3.1.x   | Yes       |
+| 3.2.x   | Yes       |
+| 3.1.x   | No        |
 | 3.0.x   | No        |
 | 2.x     | No        |
 | 1.x     | No        |
 
-The default build is CPU-only. The CUDA and Metal sources under `gpu/` are not
-compiled into the default library, and no GPU backend has been run against
-hardware. Reports about GPU code are still welcome if you state the
-configuration used.
+The default build is CPU-only. The CUDA sources under `gpu/` are not compiled
+into the default library and do not form a working dispatch path. The Metal
+backend is opt-in (`-DFFT_ENABLE_METAL=ON`, macOS 14+) and has been tested
+against hardware on an Apple M1 Pro; it relies on Apple's MPSGraph framework.
+Reports about either GPU path are welcome if you state the configuration used.
 
 ## Reporting a vulnerability
 
@@ -58,7 +60,8 @@ Out of scope:
   requests; the API reports allocation failure rather than aborting.
 - Vulnerabilities in third-party dependencies. Report those upstream; this
   repository updates them through Dependabot.
-- The unbuilt GPU backends, unless the report also affects a supported build.
+- The CUDA backend, which is not built into any dispatch path, unless the report
+  also affects a supported build.
 
 ## Disclosure
 

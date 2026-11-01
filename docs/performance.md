@@ -1,9 +1,9 @@
 # Performance Guide
 
 The numbers on this page were measured on the Windows machine described below
-using the 3.0.0 kernels. Release 3.1.0 does not change the kernels, so they
-still describe it. They are not a cross-platform comparison. Correctness was
-re-checked on Linux and macOS (see the README).
+using the 3.0.0 kernels. Releases 3.1.0 and 3.2.0 do not change the kernels, so
+they still describe them. They are not a cross-platform comparison. Correctness
+was re-checked on Linux and macOS (see the README).
 
 ## How the numbers were measured
 
@@ -47,22 +47,13 @@ Range in parentheses is the observed min-max across the sampled runs.
 | 4096 | 1.02 (0.97-1.05) | **0.89 (0.83-0.96)** | 1.99 (1.91-2.09) | 1.03 (0.97-1.08) | 9.54 (9.42-9.73) |
 | 16384 | 1.00 (0.95-1.05) | **0.93 (0.85-0.99)** | 2.86 (2.58-3.15) | 1.01 (0.96-1.09) | 9.68 (9.62-9.78) |
 
-What the table shows:
+Two things the table cannot show by itself:
 
-- **Mixed-radix is the control.** `mixed_radix_fft()` forwards power-of-two
-  lengths to `radix2_dit_fft()`, so its column must read 1.00. It measures
-  0.99-1.04, which is the resolution of the method.
-- **Radix-2 DIT and DIF are indistinguishable** at these sizes, 0.95-1.07.
-- **Radix-4 crosses over between 256 and 512.** It is slower at 16 (1.41x) and
-  64 (1.21x), a wash at 256, and faster from 512 up (0.83x, 0.89x, 0.93x). That
-  is where `select_algorithm()` puts the threshold. Below it, the O(n)
-  digit-reversal buffer costs more than the saved multiplications.
-- **Split-radix is slower in wall time**, 1.6-2.9x, despite the lowest
-  multiplication count. Its recursion moves roughly 2.5n elements per level, and
-  memory traffic is the constraint here.
-- **Bluestein costs about 10x at a power of two** because it pads the
-  convolution to `next_power_of_two(2n-1)` and runs three transforms of that
-  length.
+`mixed_radix_fft()` forwards power-of-two lengths to `radix2_dit_fft()`, so its
+column is the control; the 0.99-1.04 spread is the resolution of the method.
+Split-radix has the lowest multiplication count but is 1.6-2.9x slower in wall
+time because its recursion moves about 2.5n elements per level, and memory
+traffic is what binds here.
 
 ## Non-power-of-two sizes
 
@@ -86,14 +77,37 @@ complex numbers of scratch, mixed-radix about n.
 
 ## What is not measured
 
-There is no SIMD, threaded or fixed-point kernel to measure. The GPU sources
-under `gpu/` are not in the default build, and a default build resolves every
-`fft_gpu_*` symbol to a CPU stub, so no GPU timing exists here.
+There is no SIMD, threaded or fixed-point kernel to measure. The CUDA sources
+under `gpu/` are not part of a working dispatch path, and a default build
+resolves every `fft_gpu_*` symbol to a CPU stub. The opt-in Metal backend is
+measured separately below and is not part of the CPU ratio tables.
 
 `fft_recursive`, `naive_dft` and `optimized_dft` are excluded from the ratio
 table. They are reference implementations, and the DFTs are O(n²): a naive
 16384-point transform performs about 268 million complex exponentials. The
 benchmark does time them up to n=4096 and skips them above that.
+
+## Metal backend
+
+`gpu_benchmark` in a `-DFFT_ENABLE_METAL=ON` build times one forward transform
+per size, including host upload, graph execution and host read-back. On the
+M1 Pro used for the macOS verification, three runs of that program gave:
+
+| n | CPU (radix-2 DIT) | GPU (MPSGraph) | Ratio |
+| --- | --- | --- | --- |
+| 1024 | 20-22 us | 7.0-7.9 ms | <0.01x |
+| 4096 | 96-101 us | 6.9-8.3 ms | 0.01-0.02x |
+| 65536 | 2.01-2.07 ms | 7.3-11.0 ms | 0.19-0.28x |
+| 1048576 | 48.0-60.1 ms | 13.1-16.0 ms | 3.3-3.8x |
+
+The fixed cost of an MPSGraph call is several milliseconds, so a single
+small transform is slower on the GPU. The GPU only wins on this machine at
+1048576 points, and the ratio is for one transform, not a sustained batch.
+
+The backend computes in float32 while the CPU kernels use double. Maximum
+relative error against the CPU result was 4.5e-6 at 1024 and 5.3e-4 at 1048576.
+These are single-machine one-shot measurements; they are not comparable to the
+Windows ratios above.
 
 ## Operation counts
 

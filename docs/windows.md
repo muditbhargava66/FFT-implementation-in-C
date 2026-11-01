@@ -1,16 +1,21 @@
 # Windows Support
 
 How to build and test this library on Windows, and what is actually verified
-there. Current release: **3.1.0 (24 October 2026)**.
+there. Current release: **3.2.0 (1 November 2026)**.
 
 ## What works
 
 | Toolchain | Status |
 | --------- | ------ |
-| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified** — 1361/1361 checks, no compiler warnings locally with GCC 13.2.0; CI with GCC 16.2.0 |
-| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI** — Clang 23.1.3, tests, benchmarks and demos pass |
+| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified**: 1361/1361 checks locally with GCC 13.2.0 (3.0.0 source); CI with GCC 16.2.0 (3.1.0) |
+| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI**: 3.1.0 with Clang 23.1.3; tests, benchmarks and demos pass |
 | clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
+
+The rows above mix the 3.0.0 local run and the 3.1.0 CI runs. For 3.2.0 the suite
+gained a second binary, `test_utils` (40 checks), and CI now runs
+`realtime_analyzer` as well. The 3.2.0 tree cross-compiles with MinGW-w64 GCC
+16.2.0 and `-Werror`; runtime results come from CI on `windows-latest`.
 
 ### Why `cl.exe` is excluded
 
@@ -29,7 +34,7 @@ overloaded with the +, -, *, and / operators" because complex numbers are not a
 native type there — it offers `_Dcomplex` structures and function forms such as
 `_Cmulcc` instead.
 
-Making MSVC work would mean rewriting all eight algorithms against those helper
+Making MSVC work would mean rewriting all the kernels against those helper
 calls. Until that is done, `CMakeLists.txt` fails at configure time with this
 explanation, and `include/fft_common.h` repeats it as an `#error`, rather than
 producing hundreds of diagnostics halfway through the build.
@@ -64,9 +69,10 @@ this limit together.
 
 ```cmd
 .\build\bin\test_all.exe        :: correctness against an independent direct DFT
-.\build\bin\benchmark_all.exe   :: timings for every implementation
-.\build\bin\demo_features.exe   :: planning API, algorithm selection, wisdom
-.\build\bin\audio_spectrum.exe  :: application example
+.\build\bin\test_utils.exe     :: file I/O and utility helpers
+.\build\bin\benchmark_all.exe  :: timings for every implementation
+.\build\bin\demo_features.exe  :: planning API and algorithm selection
+.\build\bin\audio_spectrum.exe :: application example
 ```
 
 ## GPU support
@@ -75,8 +81,9 @@ Not available on a Windows build. The CUDA sources under `gpu/` are outside the
 default build, and the dispatch layer that would call them is not wired up:
 every `fft_gpu_*` symbol resolves to `utils/fft_gpu_stubs.c`, so
 `fft_gpu_available()` returns 0 and `FFT_PREFER_GPU` falls back to a CPU
-algorithm. The real option is `FFT_ENABLE_GPU`, and turning it on compiles the
-kernels without connecting them.
+algorithm. `FFT_ENABLE_GPU` compiles the CUDA kernels without connecting them.
+The MPSGraph Metal backend is macOS-only: `FFT_ENABLE_METAL` prints a warning
+on Windows and leaves the stubs in place.
 
 ## Troubleshooting
 

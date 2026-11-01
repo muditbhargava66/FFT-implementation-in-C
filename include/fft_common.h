@@ -63,8 +63,8 @@ typedef enum {
 /*
  * Error codes returned by every transform entry point. A library must not
  * terminate the process it is linked into, so the transforms report instead of
- * calling exit(); FFT_ERR_SIZE replaces the old CHECK_POWER_OF_TWO macro, which
- * aborted the host program on a bad length.
+ * calling exit(); FFT_ERR_SIZE replaces the removed CHECK_POWER_OF_TWO macro,
+ * which aborted the host program on a bad length.
  */
 typedef enum {
     FFT_OK = 0,             /* success */
@@ -179,16 +179,6 @@ static inline void timer_stop(fft_timer_t* timer) {
     timer->end = clock();
     timer->elapsed_ms = ((double)(timer->end - timer->start) / CLOCKS_PER_SEC) * 1000.0;
 }
-
-/*
- * Abort-on-error helper for standalone programs only. Library code uses
- * FFT_REQUIRE_POW2, which returns FFT_ERR_SIZE. Used by image_fft.c.
- */
-#define CHECK_POWER_OF_TWO(n) \
-    if (!is_power_of_two(n)) { \
-        fprintf(stderr, "Error: Size %d is not a power of two\n", n); \
-        exit(EXIT_FAILURE); \
-    }
 
 // Complex number utilities
 static inline void print_complex(complex_t c) {

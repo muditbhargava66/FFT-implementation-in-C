@@ -1,6 +1,6 @@
 # Quick Start
 
-This is a short tour of the library for version 3.1.0. The full setup notes are
+This is a short tour of the library for version 3.2.0. The full setup notes are
 in [Getting Started](getting-started.md).
 
 ## Build
@@ -11,7 +11,7 @@ cd FFT-implementation-in-C
 
 cmake -S . -B build
 cmake --build build
-./build/bin/test_all       # ends with 1361/1361 checks passed
+ctest --test-dir build   # test_all 1361/1361, test_utils 40/40
 ```
 
 ## A first FFT
@@ -145,8 +145,8 @@ power-of-two kernels in wall time, so "fewest operations" is not the same as
 ## Run the demos
 
 ```bash
-./build/bin/demo_features      # planning, selection and wisdom
-./build/bin/convolution        # FFT convolution, 1-D and 2-D
+./build/bin/demo_features      # planning, selection and optional GPU
+./build/bin/convolution        # FFT convolution, 1-D
 ./build/bin/audio_spectrum     # windowed spectrum analysis
 ./build/bin/pitch_detection    # peak and harmonic product spectrum
 ./build/bin/benchmark_all      # timings for every implementation
@@ -165,4 +165,4 @@ or let the planner choose. Radix-2 and radix-4 require powers of two.
 **Undefined references to math functions** — add `-lm` on Linux.
 
 **Unexpected spectrum** — check whether you applied a window, and remember that
-the forward transform is scaled by n while the inverse divides by n.
+the forward transform is unnormalised while the inverse divides by n.

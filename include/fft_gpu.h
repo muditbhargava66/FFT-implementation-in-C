@@ -7,8 +7,14 @@
  * @file fft_gpu.h
  * @brief GPU interface (CUDA and Metal)
  *
- * The GPU sources are outside the default build and are not connected to the
- * planner. In a default build every fft_gpu_* symbol resolves to a CPU stub.
+ * The Metal backend is opt-in: configure with -DFFT_ENABLE_METAL=ON on macOS 14
+ * or newer. It uses MPSGraph and therefore computes in float32, even though
+ * complex_t is double; host data is narrowed on upload and widened on download.
+ * Forward transforms are unscaled and inverse transforms carry 1/N, like the
+ * CPU kernels.
+ *
+ * In a default build, and in a CUDA-only build, every fft_gpu_* symbol resolves
+ * to utils/fft_gpu_stubs.c and reports no device.
  */
 
 // GPU backend selection
@@ -99,8 +105,11 @@ fft_gpu_plan_t fft_gpu_plan_1d(int n, int batch, fft_direction direction);
  * @param plan GPU plan
  * @param in Input GPU memory
  * @param out Output GPU memory (can be same as in)
+ * @return 0 on success, -1 on failure
+ *
+ * The direction comes from the plan passed to fft_gpu_plan_1d/2d.
  */
-void fft_gpu_execute(fft_gpu_plan_t plan, fft_gpu_memory_t in, fft_gpu_memory_t out);
+int fft_gpu_execute(fft_gpu_plan_t plan, fft_gpu_memory_t in, fft_gpu_memory_t out);
 
 /**
  * @brief Destroy GPU plan
@@ -167,6 +176,10 @@ const char* fft_gpu_get_device_name(void);
  * @brief Get GPU memory info
  * @param total Total memory in bytes
  * @param available Available memory in bytes
+ *
+ * On Metal, total is the recommended maximum working set and available is that
+ * budget minus the device's current allocation. It is an estimate of headroom,
+ * not a driver free-memory query.
  */
 void fft_gpu_get_memory_info(size_t* total, size_t* available);
 
@@ -174,30 +187,10 @@ void fft_gpu_get_memory_info(size_t* total, size_t* available);
  * @brief Set GPU device (for multi-GPU systems)
  * @param device Device index
  * @return 0 on success, -1 on failure
+ *
+ * The Metal backend exposes one system-default device and accepts only index
+ * 0. The CUDA backend does not implement device selection.
  */
 int fft_gpu_set_device(int device);
-
-// Platform-specific features
-
-#ifdef __APPLE__
-// Metal Performance Shaders specific
-typedef struct {
-    int prefer_shared_memory;
-    int allow_reduced_precision;
-} fft_mps_options_t;
-
-void fft_gpu_set_mps_options(const fft_mps_options_t* options);
-#endif
-
-#ifdef __CUDACC__
-// CUDA specific
-typedef struct {
-    int block_size;
-    int shared_memory_size;
-    cudaStream_t stream;
-} fft_cuda_options_t;
-
-void fft_gpu_set_cuda_options(const fft_cuda_options_t* options);
-#endif
 
 #endif // FFT_GPU_H

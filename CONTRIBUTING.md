@@ -1,7 +1,7 @@
 # Contributing
 
-Bug reports, fixes, tests and documentation improvements are welcome. This page
-covers the build, the checks a change has to pass, and the house style.
+Bug reports, fixes, tests and documentation improvements are welcome. Run the
+build and tests below before opening a pull request.
 
 ## Getting started
 

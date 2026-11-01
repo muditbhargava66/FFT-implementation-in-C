@@ -5,6 +5,109 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-11-01
+
+3.2.0 exposes the utility module that the library already compiled, fixes the
+bugs in it, adds an opt-in Metal backend, and tightens CI. The CPU kernels and
+the wisdom format are unchanged, so the 3.0.0 CPU timing results still describe
+them; the GPU has separate one-shot numbers.
+
+### Added
+- `include/fft_utils.h`, declaring signal generation, the Kaiser and Tukey
+  windows, file I/O, peak finding, SNR, plotting, zero padding and frequency
+  shifting. These functions were compiled into the library without a
+  declaration, so outside code could not call them.
+- `tests/test_utils.c` with 40 checks, registered as a second CTest test.
+- Linux ASan/UBSan CI job with leak detection, running both test binaries and
+  every application demo.
+- `-DFFT_ENABLE_METAL=ON` builds a working Metal backend from
+  `gpu/fft_metal.m` through MPSGraph (macOS 14+). It covers 1-D, batched,
+  in-place, 2-D and one-shot transforms, and `FFT_PREFER_GPU` reaches it for
+  complex, r2c, c2r and 2-D plans. `tests/test_gpu_metal.c` adds 70 checks
+  against a direct DFT. The device path is float32, so host doubles are
+  narrowed on upload and widened on download.
+
+### Fixed
+- The Metal file did not compute an FFT. It created `MPSImageConversion`, a
+  color-space converter, and its convenience function called the CPU
+  `radix2_dit_fft`; 2-D planning returned `NULL`. It is replaced with MPSGraph
+  transforms, and `gpu/fft_gpu.c` is now compiled into the library when the
+  backend is enabled.
+- Hardware detection called `fft_gpu_get_backend()` without initializing the
+  backend, so the GPU capability bits were never set and `FFT_PREFER_GPU` could
+  not select a GPU. Detection now initializes first.
+- A GPU plan that failed to allocate its device buffers used to execute as a
+  silent no-op and report success. Plan creation now fails instead.
+- The 2-D and r2c/c2r planner paths called `execute_1d()` with a GPU algorithm
+  id, which returned `FFT_ERR_SIZE`. r2c/c2r now run through `fft_gpu_dft_1d()`,
+  and the 2-D path issues one `fft_gpu_dft_2d()` call instead of one launch per
+  row and column.
+- `fft_gpu_execute()` ignored the plan's direction for the Metal backend, and
+  the 1-D batch and 2-D entry points did not dispatch to Metal at all. It now
+  returns 0 or -1 so the planner can report a failed graph run instead of
+  reporting success.
+- `gpu_benchmark` timed a blocking GPU call with `clock()` (processor time) and
+  rejected float32 output at a 1e-6 threshold that the backend cannot meet. It
+  now uses the monotonic wall clock off Windows and a 1e-3 threshold.
+- `generate_chirp_signal()` multiplied the instantaneous frequency by time
+  instead of integrating it, which swept at twice the requested rate.
+- `apply_window_kaiser()` divided by zero for a one-sample window;
+  `apply_window_tukey()` did the same and mishandled `alpha` outside 0..1.
+- `find_spectral_peaks()` dereferenced a failed `compute_magnitude()` result and
+  divided by a zero interpolation denominator. It now clears `*num_peaks`,
+  rejects invalid input, and clamps the interpolated offset to one bin.
+- `compute_snr()` divided by zero for an empty array; it returns `NAN` for
+  invalid arguments and keeps `INFINITY` for zero noise.
+- `save_complex_array()` and `load_complex_array()` dereferenced null pointers
+  and printed to stderr from inside the library. They now reject null or empty
+  input, return -1 on failure, and leave `*data` as `NULL` and `*n` as 0.
+  `load_complex_array()` also rejects a malformed `# Size:` header.
+- `zero_pad()`, the first-pass plotting helpers, the gnuplot script writer and
+  `frequency_shift()` now return without touching memory when handed null or
+  invalid arguments.
+- The recursive FFT's header comment claimed O(n log n) space; peak usage is
+  O(n).
+- The application demos check every allocation before use. Convolution
+  evaluates output lengths in 64 bits and validates 2-D FFT dimensions before
+  allocating; the DSP demos reject FFT lengths the kernels cannot transform.
+- `realtime_analyzer` printed a hard-coded 0.1 ms FFT time; it now measures the
+  transform, and its real-time factor uses the hop duration. `demo_features`
+  no longer prints a CPU-versus-GPU speedup from `clock()` timings that omit
+  the blocking GPU wait; it compares the two outputs instead.
+- `power_spectrum` avoids `log10(0)` and rejects lengths where `2 * n`
+  overflows; `fft_filtering` resets the working buffer before its timing pass.
+
+### Changed
+- Windows CI runs `realtime_analyzer`, so all nine demos are exercised there.
+- The macOS CI job also builds the Metal backend with `-Werror` for C and
+  Objective-C and runs `test_gpu_metal`; the test reports a skip when the
+  runner has no Metal device.
+- Linux and macOS CI configure with `-Werror`; the warning grep stays as a
+  second check.
+- Removed the `fft_gpu_set_mps_options()` and `fft_gpu_set_cuda_options()`
+  declarations. Neither had a definition, and the Metal backend has no runtime
+  precision or storage-mode switch to expose.
+- `docs/requirements.txt` raises the floors to mkdocs 1.6.1 and
+  mkdocs-material 9.8.0. Dependabot's commit prefix no longer doubles the
+  `(deps)` scope.
+- Removed the public `CHECK_POWER_OF_TWO` macro. It printed a message and
+  called `exit()`, no library code used it, and `image_fft` was its only caller.
+  Use `FFT_REQUIRE_POW2` or `is_power_of_two()` instead.
+
+### Documentation
+- Corrected the algorithm count, the number of convenience wrappers, the DIF
+  output order, the Bluestein length limit, the planner's highly-composite
+  rule, the forward/inverse scaling note and the recursive FFT's memory claim.
+- Removed duplicated performance tables and repeated error-contract text; the
+  README links to the stable documentation version.
+- The README, API reference, performance guide, optimizations page, Windows
+  notes and security policy now describe the opt-in Metal backend instead of
+  saying no GPU path exists.
+- Rewrote the core-algorithm README, which still used repeated template blocks
+  and star ratings that contradicted the measured results.
+- `docs/applications.md` now lists only the helpers each demo actually calls
+  and says which routines are present but unused.
+
 ## [3.1.0] - 2026-10-24
 
 3.1.0 is a correctness and portability release. It fixes the planner and 2-D
@@ -261,7 +364,8 @@ were removed in 3.0.0; see that entry for the details.*
 - Example programs
 - Basic documentation
 
-[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v1.0.0...v2.0.0

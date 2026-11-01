@@ -47,8 +47,9 @@ fft_gpu_plan_t fft_gpu_plan_1d(int n, int batch, fft_direction direction) {
     return NULL;
 }
 
-void fft_gpu_execute(fft_gpu_plan_t plan, fft_gpu_memory_t in, fft_gpu_memory_t out) {
+int fft_gpu_execute(fft_gpu_plan_t plan, fft_gpu_memory_t in, fft_gpu_memory_t out) {
     (void)plan; (void)in; (void)out;
+    return -1;
 }
 
 void fft_gpu_destroy_plan(fft_gpu_plan_t plan) {

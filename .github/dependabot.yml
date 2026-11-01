@@ -26,7 +26,9 @@ updates:
     # the repository, and this repository has only the GitHub default set.
     # Add labels here after creating them if you want them applied.
     commit-message:
-      prefix: "chore(deps)"
+      # include: "scope" appends "(github-actions)" to the prefix. Do not put a
+      # scope in the prefix itself or the subject ends up "chore(deps)(deps)".
+      prefix: "chore"
       include: "scope"
 
   - package-ecosystem: "pip"
@@ -35,5 +37,5 @@ updates:
       interval: "monthly"
     open-pull-requests-limit: 3
     commit-message:
-      prefix: "docs(deps)"
+      prefix: "docs"
       include: "scope"

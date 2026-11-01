@@ -25,13 +25,20 @@ extern void fft_gpu_copy_d2h_metal(complex_t *dst, fft_gpu_memory_t src,
                                    size_t n);
 extern fft_gpu_plan_t fft_gpu_plan_1d_metal(int n, int batch,
                                             fft_direction dir);
-extern void fft_gpu_execute_metal(fft_gpu_plan_t plan, fft_gpu_memory_t in,
-                                  fft_gpu_memory_t out, fft_direction dir);
+extern int fft_gpu_execute_metal(fft_gpu_plan_t plan, fft_gpu_memory_t in,
+                                 fft_gpu_memory_t out, fft_direction dir);
 extern void fft_gpu_destroy_plan_metal(fft_gpu_plan_t plan);
 extern const char *fft_gpu_get_device_name_metal(void);
 extern void fft_gpu_get_memory_info_metal(size_t *total, size_t *available);
+extern int fft_gpu_set_device_metal(int device);
 extern int fft_gpu_dft_1d_metal(complex_t *in, complex_t *out, int n,
                                 fft_direction dir);
+extern int fft_gpu_dft_1d_batch_metal(complex_t *in, complex_t *out, int n,
+                                      int batch, fft_direction dir);
+extern fft_gpu_plan_t fft_gpu_plan_2d_metal(int rows, int cols,
+                                            fft_direction dir);
+extern int fft_gpu_dft_2d_metal(complex_t *in, complex_t *out, int rows,
+                                int cols, fft_direction dir);
 #endif
 
 #ifdef __CUDACC__
@@ -259,27 +266,30 @@ fft_gpu_plan_t fft_gpu_plan_1d(int n, int batch, fft_direction direction) {
 }
 
 // Execute GPU FFT plan
-void fft_gpu_execute(fft_gpu_plan_t plan, fft_gpu_memory_t in,
-                     fft_gpu_memory_t out) {
+int fft_gpu_execute(fft_gpu_plan_t plan, fft_gpu_memory_t in,
+                    fft_gpu_memory_t out) {
   if (!plan)
-    return;
+    return -1;
 
   switch (g_current_backend) {
   case FFT_GPU_CUDA:
 #ifdef __CUDACC__
-    fft_gpu_execute_cuda(plan, in, out, FFT_FORWARD); // Direction from plan
+    fft_gpu_execute_cuda(plan, in, out, FFT_FORWARD); /* direction from plan */
+    return 0;
 #endif
     break;
 
   case FFT_GPU_METAL:
 #ifdef __APPLE__
-    fft_gpu_execute_metal(plan, in, out, FFT_FORWARD); // Direction from plan
+    return fft_gpu_execute_metal(plan, in, out, FFT_FORWARD);
 #endif
     break;
 
   default:
     break;
   }
+
+  return -1;
 }
 
 // Destroy GPU plan
@@ -378,9 +388,24 @@ int fft_gpu_dft_1d(complex_t *in, complex_t *out, int n,
 
 // Set GPU device
 int fft_gpu_set_device(int device) {
-  // TODO: Implement multi-GPU support
-  (void)device;
-  return 0;
+  switch (g_current_backend) {
+  case FFT_GPU_CUDA:
+#ifdef __CUDACC__
+    return -1; /* not implemented for the CUDA backend */
+#endif
+    break;
+
+  case FFT_GPU_METAL:
+#ifdef __APPLE__
+    return fft_gpu_set_device_metal(device);
+#endif
+    break;
+
+  default:
+    break;
+  }
+
+  return -1;
 }
 
 // Batched FFT
@@ -394,7 +419,9 @@ int fft_gpu_dft_1d_batch(complex_t *in, complex_t *out, int n, int batch,
     break;
 
   case FFT_GPU_METAL:
-    // Metal backend doesn't support batching yet
+#ifdef __APPLE__
+    return fft_gpu_dft_1d_batch_metal(in, out, n, batch, direction);
+#endif
     break;
 
   default:
@@ -420,7 +447,9 @@ fft_gpu_plan_t fft_gpu_plan_2d(int rows, int cols, fft_direction direction) {
     break;
 
   case FFT_GPU_METAL:
-    // Metal backend doesn't support 2D yet
+#ifdef __APPLE__
+    return fft_gpu_plan_2d_metal(rows, cols, direction);
+#endif
     break;
 
   default:
@@ -441,7 +470,9 @@ int fft_gpu_dft_2d(complex_t *in, complex_t *out, int rows, int cols,
     break;
 
   case FFT_GPU_METAL:
-    // Metal backend doesn't support 2D yet
+#ifdef __APPLE__
+    return fft_gpu_dft_2d_metal(in, out, rows, cols, direction);
+#endif
     break;
 
   default:

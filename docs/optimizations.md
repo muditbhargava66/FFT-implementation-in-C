@@ -5,24 +5,24 @@ the choices, and what is deliberately absent.
 
 ## Algorithm work
 
-**Radix-4 twiddles.** The radix-4 kernel used to call `cexp()` three times per
-butterfly. Twiddles now advance multiplicatively per stage, as in radix-2 DIT.
-That moved radix-4 from 3.7-4.0x slower than radix-2 DIT to 0.83-0.97x of it at
-every power-of-two length from 512 up.
+The radix-4 kernel used to call `cexp()` three times per butterfly. Twiddles now
+advance multiplicatively per stage, as in radix-2 DIT. That moved radix-4 from
+3.7-4.0x slower than radix-2 DIT to 0.83-0.97x of it at the power-of-two sizes
+measured from 512 up.
 
-**Split-radix.** The previous implementation was radix-2 DIT under a
-split-radix name. It now performs the one `n/2` plus two `n/4` decomposition,
-using a bump-allocated scratch pool instead of a `malloc` per recursion node.
-The operation count is lower, but wall time is 1.6-2.9x slower than radix-2 DIT
-because the recursion moves roughly 2.5n elements per level. The measurements
-are in the [Performance Guide](performance.md).
+Split-radix used to be radix-2 DIT under a split-radix name. It now performs the
+one `n/2` plus two `n/4` decomposition, using a bump-allocated scratch pool
+instead of a `malloc` per recursion node. The operation count is lower, but wall
+time is 1.6-2.9x slower than radix-2 DIT because the recursion moves roughly
+2.5n elements per level. The measurements are in the
+[Performance Guide](performance.md).
 
-**Mixed-radix.** Non-power-of-two lengths previously fell through to a direct
-O(n²) DFT. The kernel is now a recursive Cooley-Tukey implementation for
-composite lengths. That took N=4095 from 1513 ms to 5.90 ms; the 1513 ms figure
-predates a timing-harness correction, so the ratio is the meaningful part.
+Mixed-radix previously fell through to a direct O(n²) DFT for non-power-of-two
+lengths. The kernel is now a recursive Cooley-Tukey implementation for composite
+lengths. That took N=4095 from 1513 ms to 5.90 ms; the 1513 ms figure predates a
+timing-harness correction, so the ratio is the meaningful part.
 
-**Bit reversal.** `bit_reverse()` uses a four-stage swap network for
+For bit reversal, `bit_reverse()` uses a four-stage swap network for
 `log2n <= 8` and a shift loop above that. All four stages run unconditionally.
 An earlier guard skipped the byte swap for `log2n <= 4`, which produced a
 partial permutation and wrong spectra at N = 4, 8 and 16.
@@ -46,17 +46,16 @@ static inline unsigned int bit_reverse(unsigned int x, int log2n) {
 }
 ```
 
-**Plans allocate less.** `fft_plan_dft_1d()` used to build an n-entry twiddle
-table and an n-entry bit-reversal table that no kernel read. They cost two
-allocations and n `cexp()` calls per plan and have been removed. The kernels
-compute twiddles as they run.
+Plans used to build an n-entry twiddle table and an n-entry bit-reversal table
+that no kernel read. They cost two allocations and n `cexp()` calls per plan and
+have been removed. The kernels compute twiddles as they run.
 
-**Selection threshold.** The radix-2/radix-4 crossover moved from 64 to 256
-based on the measured ratios. With `FFT_MEASURE`, planning times the candidates
-on a private buffer, interleaves the samples, and requires a repeatable win
-before replacing the heuristic's choice. The batch target is 20 ms of wall
-time, expressed as `0.020 * CLOCKS_PER_SEC`; a fixed tick count was not portable
-because `clock()` counts milliseconds on Windows and microseconds on POSIX.
+The radix-2/radix-4 selection threshold moved from 64 to 256 based on the
+measured ratios. With `FFT_MEASURE`, planning times the candidates on a private
+buffer, interleaves the samples, and requires a repeatable win before replacing
+the heuristic's choice. The batch target is 20 ms of wall time, expressed as
+`0.020 * CLOCKS_PER_SEC`; a fixed tick count was not portable because `clock()`
+counts milliseconds on Windows and microseconds on POSIX.
 
 ## Measured result
 
@@ -128,8 +127,9 @@ otherwise fails with multiple definitions of `main`.
 - **Threading.** The planner and wisdom cache use unlocked globals. The library
   is not thread-safe, and no threaded kernel exists.
 - **Fixed point.** There is no Q15 or integer path.
-- **GPU execution.** The CUDA and Metal sources are outside the default build;
-  `fft_gpu_*` resolves to CPU stubs, and no planner path reaches a GPU kernel.
+- **CUDA execution.** The CUDA sources compile only with `FFT_ENABLE_GPU`, but
+  they are not in any working dispatch path. The Metal backend is the one GPU
+  path that reaches the planner, and it is opt-in, macOS-only and float32.
 
 ## Remaining work
 

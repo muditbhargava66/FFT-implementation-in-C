@@ -1,7 +1,7 @@
 # API Reference
 
 The public headers are `include/fft_common.h`, `include/fft_algorithms.h`,
-`include/fft_auto.h` and `include/fft_gpu.h`.
+`include/fft_auto.h`, `include/fft_utils.h` and `include/fft_gpu.h`.
 
 ## Error handling
 
@@ -20,10 +20,9 @@ leave its buffer partly modified when it fails.
 | `FFT_ERR_UNSUPPORTED` (-5) | The operation is not supported by this plan, e.g. `fft_execute_dft()` on a real-valued plan. |
 
 Discarding the return value is legal C, but then a failed transform is
-indistinguishable from a successful one. `CHECK_POWER_OF_TWO(n)` is an
-abort-on-error macro for standalone programs: it prints a message and calls
-`exit()`. Library code uses `FFT_REQUIRE_POW2(n)`, which returns `FFT_ERR_SIZE`
-from the enclosing function.
+indistinguishable from a successful one. Inside a function that returns
+`fft_error_t`, `FFT_REQUIRE_POW2(n)` returns `FFT_ERR_SIZE` when `n` is not a
+power of two.
 
 ## Core transforms
 
@@ -50,10 +49,10 @@ Size requirements:
 | `radix4_fft` | power of two (one leading radix-2 stage when `log2(n)` is odd) |
 | `split_radix_fft` | power of two |
 | `bluestein_fft` | any length up to 2^29 |
-| `mixed_radix_fft` | any length; factors 2, 3, 5 and 7 are used, and a prime length falls back to a direct DFT |
+| `mixed_radix_fft` | any length; composite lengths are factored recursively, and a prime length falls back to a direct DFT |
 | `naive_dft`, `optimized_dft` | any length; O(n²) reference implementations |
 
-The sixteen convenience wrappers (`fft_radix2_dit`, `ifft_radix2_dit`, and so
+The fourteen convenience wrappers (`fft_radix2_dit`, `ifft_radix2_dit`, and so
 on) take `(complex_t *x, int n)` and return `fft_error_t`.
 
 `mixed_radix_fft_recursive(x, n, stride, dir)` is exposed for callers that
@@ -86,7 +85,7 @@ before executing.
 | `FFT_REAL_INPUT` | `1<<5` | Set automatically by `fft_plan_r2c_1d`. |
 | `FFT_REAL_OUTPUT` | `1<<6` | Set automatically by `fft_plan_c2r_1d`. |
 | `FFT_CONSERVE_MEMORY` | `1<<8` | Prefer in-place and low-scratch kernels. Overrides `FFT_MEASURE`. |
-| `FFT_PREFER_GPU` | `1<<9` | Select a GPU algorithm when one is available. A default build has none, so this falls back to the CPU. |
+| `FFT_PREFER_GPU` | `1<<9` | Select a GPU algorithm when one is available. A default build has none, so this falls back to the CPU. A Metal build selects `GPU (Metal)` for 1-D plans; r2c, c2r and 2-D plans reach the GPU through `execute_1d()`. |
 
 `FFT_WISDOM_ONLY` is masked out of the cache key. A choice recorded under
 `FFT_MEASURE` is therefore found by a later call passing
@@ -223,6 +222,46 @@ The CPU bits report what the processor supports. No kernel dispatches on them:
 there is no SIMD or NEON implementation in this library. On x86 the AVX bits
 also require the OS to preserve YMM state, which is checked through `XGETBV`.
 
+`FFT_HW_GPU_MPS` is set only when the library was built with
+`-DFFT_ENABLE_METAL=ON`, the OS is macOS 14 or newer, and a Metal device is
+present. Detection initializes the backend once. `FFT_HW_GPU_CUDA` is never set
+by a current build: the CUDA sources compile, but the dispatcher is not wired to
+them.
+
+## GPU interface
+
+The declarations are in `include/fft_gpu.h`. With `-DFFT_ENABLE_METAL=ON` on
+macOS 14+, these functions reach MPSGraph. In every other build they are stubs:
+`fft_gpu_available()` returns 0 and the planners report no GPU algorithm.
+
+The Metal backend stores real and imaginary parts as float32 on the device,
+while `complex_t` is double on the host. `fft_gpu_copy_h2d()` narrows and
+`fft_gpu_copy_d2h()` widens, so results have float32 accuracy (measured relative
+error 4.5e-6 at n=1024 and 5.3e-4 at n=1048576). Forward transforms are
+unscaled; inverse transforms carry 1/N. A 2-D inverse carries 1/(rows*cols).
+
+| Function | Notes |
+| --- | --- |
+| `int fft_gpu_init(fft_gpu_backend_t)` | `FFT_GPU_AUTO` tries CUDA, then Metal. Returns 0 on success. |
+| `void fft_gpu_cleanup(void)` | Releases the device and queue. Plans and buffers must not be used afterwards. |
+| `int fft_gpu_available(void)` | 1 if a compiled-in backend sees a device. Does not initialize it. |
+| `fft_gpu_backend_t fft_gpu_get_backend(void)` | `FFT_GPU_NONE` until `fft_gpu_init()` succeeds. |
+| `fft_gpu_memory_t fft_gpu_alloc(size_t)` | Allocates space for that many complex values. The handle is opaque. |
+| `void fft_gpu_copy_h2d(...)` / `fft_gpu_copy_d2h(...)` | Convert between double host values and float32 device values. |
+| `fft_gpu_plan_t fft_gpu_plan_1d(int n, int batch, fft_direction)` | Shape `[batch, n]`, transformed along the last axis. Any positive `n` is accepted. |
+| `fft_gpu_plan_t fft_gpu_plan_2d(int rows, int cols, fft_direction)` | Any positive `rows` and `cols`. This is the GPU API, not `fft_plan_dft_2d`, which still requires powers of two. |
+| `int fft_gpu_execute(plan, in, out)` | The plan carries the direction; `in == out` is allowed. Returns 0 or -1. |
+| `int fft_gpu_dft_1d(...)` | One-shot convenience call with internal buffers. Returns 0 or -1. |
+| `int fft_gpu_dft_1d_batch(...)` | One-shot batched call. |
+| `int fft_gpu_dft_2d(...)` | One-shot 2-D call, row-major. |
+| `const char *fft_gpu_get_device_name(void)` | Cached at initialization. |
+| `void fft_gpu_get_memory_info(size_t *total, size_t *available)` | On Metal, recommended working set and that budget minus current device allocation. |
+| `int fft_gpu_set_device(int)` | Metal accepts index 0 only; CUDA selection is not implemented. |
+
+Plans and memory handles are independent objects. A plan can execute repeatedly
+against different buffer pairs. They are not reference counted and the interface
+has no locking, so do not share a device, plan or buffer across threads.
+
 ## Memory allocation
 
 ```c
@@ -260,6 +299,54 @@ double *compute_power_spectrum(complex_t *fft_result, int n);
 
 The three `compute_*` functions return a `malloc`'d array of `n` doubles that
 the caller frees.
+
+Signal generation, extra windows, file I/O and spectrum helpers are declared in
+`fft_utils.h`:
+
+```c
+void generate_chirp_signal(complex_t *signal, int n, double f_start,
+                           double f_end, double sample_rate);
+void generate_noise(complex_t *signal, int n, double amplitude,
+                    unsigned int seed);
+void generate_multi_tone(complex_t *signal, int n, double *frequencies,
+                         double *amplitudes, int num_tones, double sample_rate);
+void apply_window_kaiser(complex_t *signal, int n, double beta);
+void apply_window_tukey(complex_t *signal, int n, double alpha);
+int save_complex_array(const char *filename, complex_t *data, int n);
+int load_complex_array(const char *filename, complex_t **data, int *n);
+void find_spectral_peaks(complex_t *spectrum, int n, double sample_rate,
+                         double *peak_freqs, double *peak_mags, int *num_peaks,
+                         int max_peaks);
+double compute_snr(complex_t *signal, complex_t *noise, int n);
+void print_spectrum_plot(complex_t *spectrum, int n, double sample_rate,
+                         int width);
+void save_gnuplot_script(const char *script_name, const char *data_file,
+                         const char *output_image, const char *title);
+complex_t *zero_pad(complex_t *signal, int original_size, int padded_size);
+void frequency_shift(complex_t *signal, int n, double shift_freq,
+                     double sample_rate);
+```
+
+`generate_chirp_signal` sweeps linearly from `f_start` to `f_end` over
+`n / sample_rate` seconds and integrates the phase, so the instantaneous
+frequency follows the sweep. `apply_window_kaiser` and `apply_window_tukey` add
+two windows that are not in `fft_common.h`; a window shorter than two samples is
+left unchanged, and Tukey clamps `alpha` to the range 0 to 1.
+
+`save_complex_array` writes the comment header and one
+`index real imag magnitude phase` row per sample, returning 0 on success.
+`load_complex_array` reads that format and allocates the array. On a missing
+file, a malformed `# Size:` line, or a sample count that does not match the
+data, it returns -1 and sets `*data` to `NULL` and `*n` to 0. Free the result
+with `free_complex_array()`.
+
+`find_spectral_peaks` fills at most `max_peaks` local maxima of the positive
+half-spectrum using quadratic interpolation and sets `*num_peaks`. It sets
+`*num_peaks` to 0 and returns on invalid input. `compute_snr` returns
+`10 log10(signal_power / noise_power)` in dB, `INFINITY` when the noise power is
+zero, and `NAN` for invalid arguments. `zero_pad` returns a new array of
+`padded_size` samples, or `NULL` if `padded_size < original_size` or allocation
+fails. The plot, script and modulation helpers do nothing on invalid input.
 
 Window functions (implemented in `utils/window_functions.c`):
 

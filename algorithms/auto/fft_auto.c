@@ -127,7 +127,9 @@ static void detect_hardware(void) {
 
 // Check GPU availability
 #if defined(__APPLE__) || defined(__CUDACC__)
-  if (fft_gpu_available()) {
+  /* fft_gpu_get_backend() only reports a backend after fft_gpu_init(); without
+   * the init the hardware flags were never set and GPU plans were unreachable. */
+  if (fft_gpu_available() && fft_gpu_init(FFT_GPU_AUTO) == 0) {
     fft_gpu_backend_t backend = fft_gpu_get_backend();
     if (backend == FFT_GPU_CUDA) {
       g_hardware_caps |= FFT_HW_GPU_CUDA;
@@ -492,11 +494,26 @@ fft_plan_t fft_plan_dft_1d(int n, complex_t *in, complex_t *out, int sign,
   case ALGO_GPU_CUDA:
   case ALGO_GPU_MPS:
 #if defined(__APPLE__) || defined(__CUDACC__)
-    // Initialize GPU resources
-    fft_gpu_init(FFT_GPU_AUTO);
-    plan->gpu_plan = fft_gpu_plan_1d(n, 1, plan->dir);
-    plan->gpu_in = fft_gpu_alloc(n);
-    plan->gpu_out = (in == out) ? plan->gpu_in : fft_gpu_alloc(n);
+    /* r2c/c2r plans execute through execute_1d(), which acquires its own GPU
+     * buffers; only the plain complex path keeps a plan here. */
+    if ((flags & (FFT_REAL_INPUT | FFT_REAL_OUTPUT)) == 0) {
+      /* A plan that cannot allocate its device buffers would otherwise execute
+       * as a silent no-op and report success. */
+      if (fft_gpu_init(FFT_GPU_AUTO) != 0) {
+        free(plan);
+        return NULL;
+      }
+      plan->gpu_plan = fft_gpu_plan_1d(n, 1, plan->dir);
+      plan->gpu_in = fft_gpu_alloc(n);
+      plan->gpu_out = (in == out) ? plan->gpu_in : fft_gpu_alloc(n);
+      if (!plan->gpu_plan || !plan->gpu_in || !plan->gpu_out) {
+        fft_destroy_plan(plan);
+        return NULL;
+      }
+    }
+#else
+    free(plan);
+    return NULL;
 #endif
     break;
 
@@ -517,6 +534,18 @@ static fft_error_t execute_1d(complex_t *buf, int len, fft_direction dir,
   case ALGO_SPLIT_RADIX:return split_radix_fft(buf, len, dir);
   case ALGO_BLUESTEIN:  return bluestein_fft(buf, len, dir);
   case ALGO_MIXED_RADIX:return mixed_radix_fft(buf, len, dir);
+  case ALGO_GPU_CUDA:
+  case ALGO_GPU_MPS:
+#if defined(__APPLE__) || defined(__CUDACC__)
+    /* Reached by the r2c/c2r and 2-D paths, which hold one buffer at a time
+     * rather than a preallocated GPU plan. */
+    if (fft_gpu_init(FFT_GPU_AUTO) != 0)
+      return FFT_ERR_UNSUPPORTED;
+    return fft_gpu_dft_1d(buf, buf, len, dir) == 0 ? FFT_OK
+                                                   : FFT_ERR_UNSUPPORTED;
+#else
+    return FFT_ERR_UNSUPPORTED;
+#endif
   case ALGO_COUNT:      return FFT_ERR_SIZE; /* sentinel — never selected */
   default:              return FFT_ERR_SIZE; /* unknown algorithm id */
   }
@@ -562,6 +591,21 @@ fft_error_t fft_execute(fft_plan_t plan) {
     int rows = plan->rows;
     int cols = plan->cols;
     complex_t *buf = plan->out;
+
+#if defined(__APPLE__) || defined(__CUDACC__)
+    /* One 2-D GPU transform instead of one launch per row and column. */
+    if (plan->algorithm == ALGO_GPU_CUDA || plan->algorithm == ALGO_GPU_MPS ||
+        plan->col_algorithm == ALGO_GPU_CUDA ||
+        plan->col_algorithm == ALGO_GPU_MPS) {
+      if (fft_gpu_init(FFT_GPU_AUTO) != 0)
+        return FFT_ERR_UNSUPPORTED;
+      if (plan->in != plan->out)
+        memcpy(buf, plan->in, (size_t)rows * cols * sizeof(complex_t));
+      return fft_gpu_dft_2d(buf, buf, rows, cols, plan->dir) == 0
+                 ? FFT_OK
+                 : FFT_ERR_UNSUPPORTED;
+    }
+#endif
 
     /* Allocate the transpose buffer before touching either data buffer, so a
      * failed allocation leaves the caller's data alone. */
@@ -615,7 +659,8 @@ fft_error_t fft_execute(fft_plan_t plan) {
   case ALGO_GPU_MPS:
 #if defined(__APPLE__) || defined(__CUDACC__)
     fft_gpu_copy_h2d(plan->gpu_in, plan->in, plan->n);
-    fft_gpu_execute(plan->gpu_plan, plan->gpu_in, plan->gpu_out);
+    if (fft_gpu_execute(plan->gpu_plan, plan->gpu_in, plan->gpu_out) != 0)
+      return FFT_ERR_UNSUPPORTED;
     fft_gpu_copy_d2h(plan->out, plan->gpu_out, plan->n);
 #endif
     return FFT_OK;

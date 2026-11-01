@@ -42,11 +42,11 @@ the library itself only supplies the FFT and window functions.
 
 `./build/bin/convolution`
 
-Shows linear convolution (zero-padded FFT), circular convolution, 2-D
-convolution with zero padding, and a direct-versus-FFT timing comparison. The
-2-D routine is `fft_convolution_2d()`, implemented in this file:
-zero-pad both operands, forward transform, multiply pointwise, inverse
-transform, and copy the valid region.
+Shows linear convolution (zero-padded FFT), circular convolution, and a
+direct-versus-FFT timing comparison. The file also implements
+`fft_convolution_2d()`: zero-pad both operands, forward transform, multiply
+pointwise, inverse transform, and copy the valid region. The demo does not call
+the 2-D routine.
 
 For a linear convolution of lengths `nx` and `nh`, the FFT length is
 `next_power_of_two(nx + nh - 1)` so the circular wrap does not corrupt the
@@ -56,16 +56,16 @@ result.
 
 `./build/bin/power_spectrum`
 
-Compares spectral estimators on a two-tone signal with added noise:
+Runs spectral estimators on a two-tone signal with added noise:
 
 - periodogram (`compute_periodogram`)
 - Welch's method with 50% overlap and a Hann window (`welch_psd`)
 - autocorrelation via FFT
-- cross-correlation via FFT
-- magnitude-squared coherence for two signals (`compute_coherence`)
+- spectral centroid, RMS bandwidth, rolloff and total power
 
-It also computes spectral centroid, spread, skewness, kurtosis, rolloff and
-flatness from a PSD. These are demo-local functions, not library exports.
+The file also contains cross-correlation and magnitude-squared coherence
+helpers, but the demo does not call them. These are demo-local functions, not
+library exports.
 
 ## pitch_detection
 
@@ -87,27 +87,31 @@ of the demonstration.
 `./build/bin/image_fft`
 
 A 2-D tour using `complex_t **` arrays: forward and inverse transforms, FFT
-shift, ideal and Gaussian low-pass filters, edge detection, and a small
-reconstruction-error check. The 2-D helpers here (`fft_2d`, `fft_shift_2d`)
-predate the planner's `fft_plan_dft_2d()` and operate on row pointers; both
-produce the same row-column decomposition.
+shift, a Gaussian low-pass filter, and a small reconstruction-error check. The
+file also contains an ideal low-pass filter and edge detection, which the demo
+does not call. The 2-D helpers here (`fft_2d`, `fft_shift_2d`) predate the
+planner's `fft_plan_dft_2d()` and operate on row pointers; both produce the same
+row-column decomposition.
 
 ## demo_features
 
 `./build/bin/demo_features`
 
 Exercises the planning API: hardware capability bits, algorithm selection at
-several sizes, `fft_plan_algorithm_name()`, the wisdom cache, r2c/c2r and the
-2-D plan. It prints which algorithm the planner actually chose rather than a
-copy of the selection rules.
+several sizes, `fft_plan_algorithm_name()`, the one-shot call, and, when a GPU
+is available, a CPU-versus-GPU result comparison. It prints which algorithm the
+planner actually chose rather than a copy of the selection rules. The wisdom,
+r2c/c2r and 2-D paths are covered by `test_all` rather than by this demo.
 
 ## GPU benchmark
 
 `./build/bin/gpu_benchmark`
 
 Reports CPU timings and checks `fft_gpu_available()`. In a default build no GPU
-backend is compiled in, so it prints that the GPU is not available. It is built
-so the GPU API cannot drift unnoticed, not because a GPU path is usable.
+backend is compiled in, so it prints that the GPU is not available. With
+`-DFFT_ENABLE_METAL=ON` on macOS 14+ it initializes MPSGraph, times a forward
+transform at four sizes, and compares the result against the CPU kernel. The
+GPU call includes upload and read-back, so the speedup includes transfer time.
 
 ## Reusing the code
 

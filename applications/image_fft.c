@@ -92,12 +92,17 @@ void fft_2d(complex_t** data, int rows, int cols, fft_direction dir) {
 
 // Shift zero frequency to center (fftshift)
 void fft_shift_2d(complex_t** data, int rows, int cols) {
+    if (!data || rows <= 0 || cols <= 0)
+        return;
+
     int half_rows = rows / 2;
     int half_cols = cols / 2;
     
     complex_t** temp = allocate_2d_complex(rows, cols);
-    if (!temp)
+    if (!temp) {
+        fprintf(stderr, "fft_shift_2d: allocation failed; spectrum not shifted\n");
         return;
+    }
     
     // Copy to temp with shift
     for (int i = 0; i < rows; i++) {
@@ -200,6 +205,9 @@ void apply_gaussian_filter_2d(complex_t** spectrum, int rows, int cols, double s
 
 // Visualization helpers
 void display_magnitude_2d(complex_t** data, int rows, int cols, const char* title) {
+    if (!data || rows <= 0 || cols <= 0)
+        return;
+
     printf("\n%s (magnitude, center region):\n", title);
     printf("==================================\n");
     
@@ -211,8 +219,8 @@ void display_magnitude_2d(complex_t** data, int rows, int cols, const char* titl
             if (mag > max_mag) max_mag = mag;
         }
     }
-    if (max_mag <= 0.0) max_mag = 1.0;
-    
+    if (max_mag <= 0.0) max_mag = 1.0;  /* all-zero data: print a zero field */
+
     // Display center region
     int display_size = 16;
     if (display_size > rows) display_size = rows;

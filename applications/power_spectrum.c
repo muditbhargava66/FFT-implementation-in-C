@@ -1,5 +1,6 @@
 #include "fft_common.h"
 #include "fft_algorithms.h"
+#include <limits.h>
 
 /**
  * Power Spectrum Analysis
@@ -8,20 +9,11 @@
  * and coherence, with a summary of spectral statistics.
  */
 
-// PSD estimation methods
-typedef enum {
-    PSD_PERIODOGRAM,
-    PSD_WELCH,
-    PSD_BARTLETT,
-    PSD_BLACKMAN_TUKEY
-} psd_method_t;
-
-// Welch's method parameters
+// Welch's method parameters. The periodogram helper applies a Hann window, so
+// the window type is not configurable here.
 typedef struct {
     int window_size;
     int overlap;
-    const char* window_type;
-    int num_averages;
 } welch_params_t;
 
 // Compute periodogram (simple PSD estimate)
@@ -127,7 +119,7 @@ double* welch_psd(complex_t* signal, int signal_len, double sample_rate,
 // Compute autocorrelation using FFT.
 // Returns a heap array the caller must release with free_complex_array().
 complex_t* autocorrelation_fft(complex_t* signal, int n) {
-    if (!signal || n <= 0) return NULL;
+    if (!signal || n <= 0 || n > INT_MAX / 2) return NULL;
 
     // Zero-pad to avoid circular correlation
     int n_fft = next_power_of_two(2 * n);
@@ -164,7 +156,7 @@ complex_t* autocorrelation_fft(complex_t* signal, int n) {
 // Cross-correlation via FFT.
 // Returns a heap array the caller must release with free_complex_array().
 complex_t* cross_correlation_fft(complex_t* x, complex_t* y, int n) {
-    if (!x || !y || n <= 0) return NULL;
+    if (!x || !y || n <= 0 || n > INT_MAX / 2) return NULL;
 
     int n_fft = next_power_of_two(2 * n);
     if (n_fft <= 0) return NULL;
@@ -391,8 +383,7 @@ void demo_signal_analysis() {
     printf("\n2. Welch's Method (reduced variance):\n");
     welch_params_t welch_params = {
         .window_size = 256,
-        .overlap = 128,
-        .window_type = "hann"
+        .overlap = 128
     };
     
     double* psd_welch = welch_psd(signal, n, sample_rate, &welch_params);
@@ -407,8 +398,8 @@ void demo_signal_analysis() {
     int bin_50hz = (int)(50.0 * welch_params.window_size / sample_rate);
     int bin_120hz = (int)(120.0 * welch_params.window_size / sample_rate);
     
-    printf("50 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_50hz]));
-    printf("120 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_120hz]));
+    printf("50 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_50hz] + 1e-10));
+    printf("120 Hz: %.1f dB/Hz\n", 10 * log10(psd_welch[bin_120hz] + 1e-10));
     
     // 3. Autocorrelation
     printf("\n3. Autocorrelation Analysis:\n");

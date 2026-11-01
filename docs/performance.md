@@ -77,14 +77,37 @@ complex numbers of scratch, mixed-radix about n.
 
 ## What is not measured
 
-There is no SIMD, threaded or fixed-point kernel to measure. The GPU sources
-under `gpu/` are not in the default build, and a default build resolves every
-`fft_gpu_*` symbol to a CPU stub, so no GPU timing exists here.
+There is no SIMD, threaded or fixed-point kernel to measure. The CUDA sources
+under `gpu/` are not part of a working dispatch path, and a default build
+resolves every `fft_gpu_*` symbol to a CPU stub. The opt-in Metal backend is
+measured separately below and is not part of the CPU ratio tables.
 
 `fft_recursive`, `naive_dft` and `optimized_dft` are excluded from the ratio
 table. They are reference implementations, and the DFTs are O(n²): a naive
 16384-point transform performs about 268 million complex exponentials. The
 benchmark does time them up to n=4096 and skips them above that.
+
+## Metal backend
+
+`gpu_benchmark` in a `-DFFT_ENABLE_METAL=ON` build times one forward transform
+per size, including host upload, graph execution and host read-back. On the
+M1 Pro used for the macOS verification, three runs of that program gave:
+
+| n | CPU (radix-2 DIT) | GPU (MPSGraph) | Ratio |
+| --- | --- | --- | --- |
+| 1024 | 20-22 us | 7.0-7.9 ms | <0.01x |
+| 4096 | 96-101 us | 6.9-8.3 ms | 0.01-0.02x |
+| 65536 | 2.01-2.07 ms | 7.3-11.0 ms | 0.19-0.28x |
+| 1048576 | 48.0-60.1 ms | 13.1-16.0 ms | 3.3-3.8x |
+
+The fixed cost of an MPSGraph call is several milliseconds, so a single
+small transform is slower on the GPU. The GPU only wins on this machine at
+1048576 points, and the ratio is for one transform, not a sustained batch.
+
+The backend computes in float32 while the CPU kernels use double. Maximum
+relative error against the CPU result was 4.5e-6 at 1024 and 5.3e-4 at 1048576.
+These are single-machine one-shot measurements; they are not comparable to the
+Windows ratios above.
 
 ## Operation counts
 

@@ -647,14 +647,16 @@ static void test_plan_api(test_config_t *config) {
     int imported = fft_import_wisdom_from_string(
         "# FFT Wisdom v3.0.0 (1 entries)\n16 0 6\n");
     unsigned caps = fft_get_hardware_capabilities();
-    int has_gpu = (caps & (FFT_HW_GPU_CUDA | FFT_HW_GPU_MPS)) != 0;
+    /* Id 6 is the CUDA backend. A Metal-only machine has a GPU but cannot run
+     * that entry, and the importer must treat it as a cache miss there. */
+    int has_cuda = (caps & FFT_HW_GPU_CUDA) != 0;
 
     complex_t gpu_buf[16];
     for (int i = 0; i < 16; i++) gpu_buf[i] = 100.0 + (double)i;
     fft_plan_t gpu = fft_plan_dft_1d(16, gpu_buf, gpu_buf, -1, FFT_WISDOM_ONLY);
 
     int ok = imported == 1;
-    if (has_gpu)
+    if (has_cuda)
       ok = ok && gpu != NULL && fft_execute(gpu) == FFT_OK;
     else
       ok = ok && gpu == NULL; /* unavailable entry must be a cache miss */

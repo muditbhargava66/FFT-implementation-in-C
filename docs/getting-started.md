@@ -53,6 +53,11 @@ against a direct DFT, and `test_utils`, which covers the file I/O and helper
 functions. A successful `test_all` run ends with `1361/1361 checks passed`; the
 utility suite ends with `40/40 checks passed`.
 
+On macOS 14 or newer, `cmake -S . -B build-metal -DFFT_ENABLE_METAL=ON` adds a
+third test, `test_gpu_metal` (70 checks), which runs the MPSGraph backend against
+a direct DFT. It reports a skip instead of failing when no Metal device is
+available.
+
 To choose a compiler, pass it at configure time:
 
 ```bash

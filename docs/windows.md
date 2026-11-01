@@ -71,7 +71,7 @@ this limit together.
 .\build\bin\test_all.exe        :: correctness against an independent direct DFT
 .\build\bin\test_utils.exe     :: file I/O and utility helpers
 .\build\bin\benchmark_all.exe  :: timings for every implementation
-.\build\bin\demo_features.exe  :: planning API, algorithm selection, wisdom
+.\build\bin\demo_features.exe  :: planning API and algorithm selection
 .\build\bin\audio_spectrum.exe :: application example
 ```
 
@@ -81,8 +81,9 @@ Not available on a Windows build. The CUDA sources under `gpu/` are outside the
 default build, and the dispatch layer that would call them is not wired up:
 every `fft_gpu_*` symbol resolves to `utils/fft_gpu_stubs.c`, so
 `fft_gpu_available()` returns 0 and `FFT_PREFER_GPU` falls back to a CPU
-algorithm. The real option is `FFT_ENABLE_GPU`, and turning it on compiles the
-kernels without connecting them.
+algorithm. `FFT_ENABLE_GPU` compiles the CUDA kernels without connecting them.
+The MPSGraph Metal backend is macOS-only: `FFT_ENABLE_METAL` prints a warning
+on Windows and leaves the stubs in place.
 
 ## Troubleshooting
 

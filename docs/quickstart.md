@@ -145,8 +145,8 @@ power-of-two kernels in wall time, so "fewest operations" is not the same as
 ## Run the demos
 
 ```bash
-./build/bin/demo_features      # planning, selection and wisdom
-./build/bin/convolution        # FFT convolution, 1-D and 2-D
+./build/bin/demo_features      # planning, selection and optional GPU
+./build/bin/convolution        # FFT convolution, 1-D
 ./build/bin/audio_spectrum     # windowed spectrum analysis
 ./build/bin/pitch_detection    # peak and harmonic product spectrum
 ./build/bin/benchmark_all      # timings for every implementation

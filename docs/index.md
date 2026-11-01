@@ -12,7 +12,8 @@ ctest --test-dir build --output-on-failure
 ```
 
 The library is `build/lib/libfft_lib_c.a`. `test_all`, `test_utils`,
-`benchmark_all` and the demos are in `build/bin`.
+`benchmark_all` and the demos are in `build/bin`. A `-DFFT_ENABLE_METAL=ON`
+build on macOS 14+ also produces `test_gpu_metal`.
 
 ## Start here
 
@@ -28,10 +29,12 @@ The library is `build/lib/libfft_lib_c.a`. `test_all`, `test_utils`,
 Release 3.2.0 was run locally on macOS 27 arm64 (Apple Clang 21.0.0, Homebrew
 GCC 16.2.0) and Ubuntu 24.04 arm64 (GCC 13.3.0, Clang 18.1.3): 1361/1361 checks
 in `test_all`, 40/40 in `test_utils`, no compiler warnings with `-Werror`, and
-52 passed / 0 failed / 2 skipped benchmark rows. CI runs both test binaries,
-the benchmark pass/fail check and the application demos on Linux, macOS and
-Windows MinGW-w64. The performance ratios come from a Windows 11 machine running
-the 3.0.0 kernels; the kernels have not changed since.
+52 passed / 0 failed / 2 skipped benchmark rows. The Metal build on the same M1
+Pro passed 70/70 GPU checks, also with `-Werror` for C and Objective-C. CI runs
+both test binaries, the benchmark pass/fail check and the application demos on
+Linux, macOS and Windows MinGW-w64, and builds and runs the Metal backend on
+macOS. The performance ratios come from a Windows 11 machine running the 3.0.0
+kernels; the kernels have not changed since.
 
 ## Background
 

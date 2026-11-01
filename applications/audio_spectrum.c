@@ -69,6 +69,8 @@ void find_peaks(double* magnitude, int n, double sample_rate,
 
 // Display spectrum as ASCII art
 void display_spectrum_ascii(double* magnitude, int n, double sample_rate) {
+    if (!magnitude || n < 2) return;
+
     int display_bins = 64;  // Number of bins to display
     if (display_bins > n/2) display_bins = n/2;
     
@@ -113,6 +115,10 @@ void analyze_audio_spectrum(complex_t* signal, int n, double sample_rate,
     
     // Compute magnitude spectrum
     double* magnitude = compute_magnitude(signal, n);
+    if (!magnitude) {
+        fprintf(stderr, "analyze_audio_spectrum: magnitude allocation failed\n");
+        return;
+    }
     
     // Find and display peaks
     peak_t peaks[10];
@@ -169,6 +175,10 @@ int main() {
     printf("------------------------------\n");
     
     complex_t* signal = allocate_complex_array(fft_size);
+    if (!signal) {
+        fprintf(stderr, "audio_spectrum: signal allocation failed\n");
+        return 1;
+    }
     generate_test_audio(signal, fft_size, sample_rate);
     
     printf("Generated signal with frequencies: 440 Hz (A4), 554 Hz (C#5), 659 Hz (E5)\n");
@@ -179,6 +189,11 @@ int main() {
     for (int w = 0; w < 4; w++) {
         // Make a copy for analysis
         complex_t* signal_copy = allocate_complex_array(fft_size);
+        if (!signal_copy) {
+            fprintf(stderr, "audio_spectrum: window copy allocation failed\n");
+            free_complex_array(signal);
+            return 1;
+        }
         memcpy(signal_copy, signal, fft_size * sizeof(complex_t));
         
         printf("\n\nWindow: %s\n", windows[w]);
@@ -206,6 +221,11 @@ int main() {
      * time-domain chord for the note-detection pass below. Transforming the
      * spectrum again produced peaks around 6.8 kHz that were not in the signal. */
     complex_t* chord_copy = allocate_complex_array(fft_size);
+    if (!chord_copy) {
+        fprintf(stderr, "audio_spectrum: chord copy allocation failed\n");
+        free_complex_array(signal);
+        return 1;
+    }
     memcpy(chord_copy, signal, (size_t)fft_size * sizeof(complex_t));
 
     printf("C Major Chord (C4, E4, G4):\n");
@@ -215,6 +235,12 @@ int main() {
     printf("\nNote Detection:\n");
     radix2_dit_fft(chord_copy, fft_size, FFT_FORWARD);
     double* magnitude = compute_magnitude(chord_copy, fft_size);
+    if (!magnitude) {
+        fprintf(stderr, "audio_spectrum: magnitude allocation failed\n");
+        free_complex_array(chord_copy);
+        free_complex_array(signal);
+        return 1;
+    }
     
     peak_t peaks[10];
     int num_peaks;

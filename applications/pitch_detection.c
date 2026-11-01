@@ -46,6 +46,9 @@ int num_notes = sizeof(notes) / sizeof(notes[0]);
 
 // Find closest musical note
 const char* frequency_to_note_name(double freq) {
+    if (freq <= 0.0)
+        return "N/A";
+
     int closest_idx = 0;
     double min_cents = 1200;  // Max cents difference
     
@@ -244,10 +247,15 @@ static int is_subharmonic_multiple(double f, double base) {
 
 pitch_result_t detect_pitch_with_confidence(complex_t* signal, int n, double sample_rate) {
     pitch_result_t result = {0};
+    result.note = "N/A";
+    if (!signal || n < 4 || sample_rate <= 0.0)
+        return result;
     
     // Method 1: Peak detection
     complex_t* spectrum = allocate_complex_array(n);
-    memcpy(spectrum, signal, n * sizeof(complex_t));
+    if (!spectrum)
+        return result;
+    memcpy(spectrum, signal, (size_t)n * sizeof(complex_t));
     /* Window before transforming. Spectral leakage from an unwindowed tone
      * gives the harmonic product something to multiply besides the harmonics. */
     apply_window_hann(spectrum, n);
@@ -319,6 +327,10 @@ int main() {
     printf("------------------------------------\n");
     
     complex_t* signal = allocate_complex_array(n);
+    if (!signal) {
+        fprintf(stderr, "pitch_detection: signal allocation failed\n");
+        return 1;
+    }
     for (int i = 0; i < n; i++) {
         signal[i] = sin(2 * PI * 440 * i / sample_rate);
     }
@@ -381,7 +393,12 @@ int main() {
     generate_musical_note(signal, n, 220, sample_rate, 3, NULL);  // A3
     
     complex_t* spectrum = allocate_complex_array(n);
-    memcpy(spectrum, signal, n * sizeof(complex_t));
+    if (!spectrum) {
+        fprintf(stderr, "pitch_detection: spectrum allocation failed\n");
+        free_complex_array(signal);
+        return 1;
+    }
+    memcpy(spectrum, signal, (size_t)n * sizeof(complex_t));
     apply_window_hann(spectrum, n);
     radix2_dit_fft(spectrum, n, FFT_FORWARD);
     

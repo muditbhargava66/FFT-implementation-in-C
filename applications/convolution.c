@@ -1,5 +1,6 @@
 #include "fft_common.h"
 #include "fft_algorithms.h"
+#include <limits.h>
 
 /**
  * FFT-based Convolution
@@ -18,7 +19,13 @@
 
 // Direct convolution for comparison
 void direct_convolution(complex_t* x, int nx, complex_t* h, int nh, complex_t* y) {
-    int ny = nx + nh - 1;
+    if (!x || !h || !y || nx <= 0 || nh <= 0)
+        return;
+
+    long long ny_ll = (long long)nx + nh - 1;
+    if (ny_ll > INT_MAX)
+        return;
+    int ny = (int)ny_ll;
     
     for (int n = 0; n < ny; n++) {
         y[n] = 0;
@@ -34,8 +41,11 @@ void direct_convolution(complex_t* x, int nx, complex_t* h, int nh, complex_t* y
 void fft_convolution(complex_t* x, int nx, complex_t* h, int nh, complex_t* y) {
     if (!x || !h || !y || nx <= 0 || nh <= 0) return;
 
-    // Output length
-    int ny = nx + nh - 1;
+    // Output length. The sum is evaluated in 64 bits so two large ints cannot
+    // wrap to a small positive length.
+    long long ny_ll = (long long)nx + nh - 1;
+    if (ny_ll > INT_MAX) return;
+    int ny = (int)ny_ll;
     
     // Find next power of 2 for FFT
     int n_fft = next_power_of_two(ny);
@@ -118,16 +128,36 @@ void circular_convolution(complex_t* x, complex_t* h, int n, complex_t* y) {
 void fft_convolution_2d(complex_t** image, int rows, int cols,
                        complex_t** kernel, int krows, int kcols,
                        complex_t** result) {
-    int out_rows = rows + krows - 1;
-    int out_cols = cols + kcols - 1;
+    if (!image || !kernel || !result || rows <= 0 || cols <= 0 ||
+        krows <= 0 || kcols <= 0)
+        return;
+
+    long long out_rows_ll = (long long)rows + krows - 1;
+    long long out_cols_ll = (long long)cols + kcols - 1;
+    if (out_rows_ll > INT_MAX || out_cols_ll > INT_MAX)
+        return;
+
+    int out_rows = (int)out_rows_ll;
+    int out_cols = (int)out_cols_ll;
     int fft_rows = next_power_of_two(out_rows);
     int fft_cols = next_power_of_two(out_cols);
+    if (fft_rows <= 0 || fft_cols <= 0)
+        return;
+    if ((long long)fft_rows * fft_cols > INT_MAX)
+        return;
 
-    /* Flatten into row-major 1-D arrays, zero-padded */
-    complex_t* img_buf = allocate_complex_array(fft_rows * fft_cols);
-    complex_t* ker_buf = allocate_complex_array(fft_rows * fft_cols);
-    memset(img_buf, 0, fft_rows * fft_cols * sizeof(complex_t));
-    memset(ker_buf, 0, fft_rows * fft_cols * sizeof(complex_t));
+    int total = fft_rows * fft_cols;
+
+    /* Flatten into row-major 1-D arrays, zero-padded (the allocator zeroes). */
+    complex_t* img_buf = allocate_complex_array(total);
+    complex_t* ker_buf = allocate_complex_array(total);
+    complex_t* tmp = allocate_complex_array(total);
+    if (!img_buf || !ker_buf || !tmp) {
+        free_complex_array(img_buf);
+        free_complex_array(ker_buf);
+        free_complex_array(tmp);
+        return;
+    }
 
     for (int r = 0; r < rows; r++)
         for (int c = 0; c < cols; c++)
@@ -144,17 +174,15 @@ void fft_convolution_2d(complex_t** image, int rows, int cols,
     }
 
     /* Transpose both (swap to column-major for column-wise FFT) */
-    complex_t* tmp = allocate_complex_array(fft_rows * fft_cols);
-
     for (int r = 0; r < fft_rows; r++)
         for (int c = 0; c < fft_cols; c++)
             tmp[c * fft_rows + r] = img_buf[r * fft_cols + c];
-    memcpy(img_buf, tmp, fft_rows * fft_cols * sizeof(complex_t));
+    memcpy(img_buf, tmp, (size_t)total * sizeof(complex_t));
 
     for (int r = 0; r < fft_rows; r++)
         for (int c = 0; c < fft_cols; c++)
             tmp[c * fft_rows + r] = ker_buf[r * fft_cols + c];
-    memcpy(ker_buf, tmp, fft_rows * fft_cols * sizeof(complex_t));
+    memcpy(ker_buf, tmp, (size_t)total * sizeof(complex_t));
 
     /* Column-wise forward FFT (now stored as rows after transpose) */
     for (int c = 0; c < fft_cols; c++) {
@@ -163,7 +191,7 @@ void fft_convolution_2d(complex_t** image, int rows, int cols,
     }
 
     /* Pointwise multiply */
-    for (int i = 0; i < fft_rows * fft_cols; i++)
+    for (int i = 0; i < total; i++)
         img_buf[i] *= ker_buf[i];
 
     /* Inverse column-wise FFT */
@@ -174,7 +202,7 @@ void fft_convolution_2d(complex_t** image, int rows, int cols,
     for (int r = 0; r < fft_rows; r++)
         for (int c = 0; c < fft_cols; c++)
             tmp[r * fft_cols + c] = img_buf[c * fft_rows + r];
-    memcpy(img_buf, tmp, fft_rows * fft_cols * sizeof(complex_t));
+    memcpy(img_buf, tmp, (size_t)total * sizeof(complex_t));
 
     /* Inverse row-wise FFT */
     for (int r = 0; r < fft_rows; r++)
@@ -199,6 +227,12 @@ void demo_convolution_types() {
     int nx = 8, nh = 4;
     complex_t* x = allocate_complex_array(nx);
     complex_t* h = allocate_complex_array(nh);
+    if (!x || !h) {
+        fprintf(stderr, "Error: allocation failed for convolution demo\n");
+        free_complex_array(x);
+        free_complex_array(h);
+        return;
+    }
     
     // Signal: unit impulse at different positions
     for (int i = 0; i < nx; i++) x[i] = 0;
@@ -220,6 +254,12 @@ void demo_convolution_types() {
     // Linear convolution
     int ny = nx + nh - 1;
     complex_t* y_linear = allocate_complex_array(ny);
+    if (!y_linear) {
+        fprintf(stderr, "Error: allocation failed for linear convolution\n");
+        free_complex_array(x);
+        free_complex_array(h);
+        return;
+    }
     fft_convolution(x, nx, h, nh, y_linear);
     
     printf("\nLinear convolution result: ");
@@ -235,6 +275,10 @@ void demo_convolution_types() {
     if (!y_circular || !h_pad) {
         fprintf(stderr, "Error: allocation failed for circular convolution\n");
         free_complex_array(y_circular);
+        free_complex_array(h_pad);
+        free_complex_array(x);
+        free_complex_array(h);
+        free_complex_array(y_linear);
         return;
     }
     memcpy(h_pad, h, (size_t)nh * sizeof(complex_t));
@@ -274,6 +318,14 @@ void benchmark_convolution() {
         complex_t* h = allocate_complex_array(nh);
         complex_t* y_direct = allocate_complex_array(ny);
         complex_t* y_fft = allocate_complex_array(ny);
+        if (!x || !h || !y_direct || !y_fft) {
+            fprintf(stderr, "benchmark_convolution: allocation failed\n");
+            free_complex_array(x);
+            free_complex_array(h);
+            free_complex_array(y_direct);
+            free_complex_array(y_fft);
+            continue;
+        }
         
         // Fill with random data
         for (int j = 0; j < nx; j++) {
@@ -353,6 +405,10 @@ int main() {
     
     int ny = nx + nh - 1;
     complex_t* y = allocate_complex_array(ny);
+    if (!y) {
+        fprintf(stderr, "convolution: output allocation failed\n");
+        return 1;
+    }
     
     printf("Signal: ");
     for (int i = 0; i < nx; i++) printf("%.0f ", creal(x[i]));

@@ -5,14 +5,18 @@
 [![Documentation](https://app.readthedocs.org/projects/fft-implementation-in-c/badge/?version=stable)](https://fft-implementation-in-c.readthedocs.io/en/stable/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
-[![GPU Support](https://img.shields.io/badge/GPU-source--only-lightgrey)]()
+[![GPU](https://img.shields.io/badge/GPU-Metal%20opt--in-lightgrey)]()
 [![Release](https://img.shields.io/badge/release-3.2.0-success)]()
 
 </div>
 
 A C11 FFT library with seven FFT kernels, two DFT references, a planning API,
-and algorithm selection based on measured cost. Builds with GCC and Clang on
-Linux, macOS and Windows (MinGW-w64). MSVC's `cl.exe` is not supported.
+algorithm selection based on measured cost, and an optional Metal backend for
+Apple Silicon. Builds with GCC and Clang on Linux, macOS and Windows
+(MinGW-w64).
+
+> [!NOTE]
+> MSVC's `cl.exe` is not supported.
 
 ## Contents
 
@@ -43,8 +47,10 @@ never calls `exit()`. The failure contract and error codes are in the
 What it does not do:
 
 - No SIMD, threaded or fixed-point kernels.
-- No GPU execution. The CUDA and Metal sources are in `gpu/` but outside the
-  default build, and the planner resolves `fft_gpu_*` to CPU stubs.
+- No CUDA execution. The CUDA sources compile but are not wired to the planner.
+- GPU execution outside macOS. The Metal backend is opt-in
+  (`-DFFT_ENABLE_METAL=ON`, macOS 14+) and computes in float32; default builds
+  resolve `fft_gpu_*` to CPU stubs.
 - Not thread-safe. Algorithm selection and the wisdom cache share global state,
   so do not plan from multiple threads.
 - 2-D plans accept power-of-two row and column counts only.
@@ -76,11 +82,37 @@ cmake -S . -B build -DCMAKE_C_COMPILER=clang
 `-march=native` is off by default; enable it with `-DFFT_NATIVE_ARCH=ON` if the
 binary only needs to run on the build machine.
 
+### Metal backend
+
+On macOS 14 or newer, with a Metal-capable device:
+
+```bash
+cmake -S . -B build-metal -DFFT_ENABLE_METAL=ON
+cmake --build build-metal
+ctest --test-dir build-metal --output-on-failure
+```
+
+The backend is Objective-C with automatic reference counting, so it needs a
+Clang toolchain; configure stops with an explanation if the C compiler is GCC.
+
+This compiles `gpu/fft_gpu.c` and the MPSGraph implementation in
+`gpu/fft_metal.m`, links MetalPerformanceShadersGraph, and adds
+`build/bin/test_gpu_metal`. That test checks 1-D, batched, in-place, 2-D and
+planner-driven transforms against a direct DFT. The GPU computes in float32, so
+results are compared with a tolerance; the host-side `complex_t` stays double.
+The GPU API's 2-D transform accepts any positive size; the planner's 2-D plan
+still requires powers of two.
+
+The backend also powers `FFT_PREFER_GPU` in the planner and
+`build/bin/gpu_benchmark`. The CUDA sources are still not part of any working
+dispatch path.
+
 ### Verified builds
 
 | Platform | Compiler | Result |
 | --- | --- | --- |
 | macOS 27, arm64 | Apple Clang 21.0.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
+| macOS 27, arm64, `FFT_ENABLE_METAL=ON` | Apple Clang 21.0.0 | 3.2.0: 1361/1361 + 40/40 + 70/70 GPU checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | macOS 27, arm64 | Homebrew GCC 16.2.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 24.04, arm64 (container) | GCC 13.3.0 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 24.04, arm64 (container) | Clang 18.1.3 | 3.2.0: 1361/1361 + 40/40 checks, 0 warnings with `-Werror`; benchmarks 52/0/2; demos 9/9 |
@@ -92,11 +124,13 @@ binary only needs to run on the build machine.
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
 The 3.2.0 rows were run locally on the release branch: Ubuntu 24.04 in a
-container on arm64, and macOS on an Apple M1 Pro. The Windows x86_64 row is a
-cross-build with the same compiler version as CI; it proves the sources compile
-and link, not that the binaries run. The CI rows are the 3.1.0 results. The
-3.2.0 workflow adds a Linux ASan/UBSan lane and runs `realtime_analyzer` on
-Windows too; those results will be recorded here after the release branch runs.
+container on arm64, and macOS on an Apple M1 Pro. The Metal row uses the same
+M1 Pro with `-DFFT_ENABLE_METAL=ON` and `-Werror` for both C and Objective-C.
+The Windows x86_64 row is a cross-build with the same compiler version as CI;
+it proves the sources compile and link, not that the binaries run. The CI rows
+are the 3.1.0 results. The 3.2.0 workflow adds a Linux ASan/UBSan lane, builds
+and runs the Metal backend on macOS, and runs `realtime_analyzer` on Windows
+too; those results will be recorded here after the release branch runs.
 Performance figures below are from the Windows 3.0.0 machine; they are not a
 cross-platform comparison.
 
@@ -205,6 +239,15 @@ non-power-of-two lengths Bluestein beat mixed-radix at every size tested, by
 machine running the 3.0.0 kernels; later releases do not change the kernels, so
 they still describe this code.
 
+The Metal backend has a different profile. Each one-shot MPSGraph transform
+includes buffer setup and a blocking read-back, so on an M1 Pro
+`gpu_benchmark` measured GPU times of 6.9-11.0 ms across 1024 to 65536 points
+against 20 us to 2.1 ms on one CPU core: slower below 65536. At 1048576 points
+three runs gave 13.1-16.0 ms on the GPU against 48.0-60.1 ms on the CPU, or
+3.3-3.8x. Those are single-machine, one-shot measurements, not a batched
+comparison. The GPU path also computes in float32, with relative error growing
+from 4.5e-6 at 1024 to 5.3e-4 at 1048576.
+
 ## Documentation
 
 The full docs are at <https://fft-implementation-in-c.readthedocs.io/>:
@@ -222,8 +265,8 @@ algorithms/     core kernels, DFT references, planner (core/, dft/, auto/)
 utils/          windows, helpers, GPU stubs
 applications/   runnable demos
 benchmarks/     benchmark_all and gpu_benchmark
-tests/          test_all.c
-gpu/            CUDA and Metal sources, not in the default build
+tests/          test_all, test_utils, test_gpu_metal
+gpu/            CUDA sources and the opt-in MPSGraph Metal backend
 docs/           MkDocs site
 ```
 
@@ -269,4 +312,8 @@ Apache License 2.0. See [LICENSE](LICENSE).
 
 ---
 
+<div align="center">
+
 Copyright 2024-2026 Mudit Bhargava.
+
+</div>

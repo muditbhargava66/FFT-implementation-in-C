@@ -36,7 +36,11 @@ typedef struct {
 
 // Create analyzer
 analyzer_t* create_analyzer(analyzer_config_t config) {
-    if (config.fft_size <= 0 || config.hop_size <= 0 || !config.window_type)
+    /* radix2_dit_fft needs a power-of-two length, the hop cannot exceed the
+     * window, and the moving average divides by averaging_frames. */
+    if (config.fft_size <= 0 || !is_power_of_two(config.fft_size) ||
+        config.hop_size <= 0 || config.hop_size > config.fft_size ||
+        config.averaging_frames < 1 || !config.window_type)
         return NULL;
 
     analyzer_t* analyzer = (analyzer_t*)malloc(sizeof(analyzer_t));
@@ -73,6 +77,9 @@ void destroy_analyzer(analyzer_t* analyzer) {
 
 // Process audio frame
 void process_frame(analyzer_t* analyzer, double* audio_samples, int num_samples) {
+    if (!analyzer || !audio_samples || num_samples <= 0)
+        return;
+
     // Add samples to circular buffer
     for (int i = 0; i < num_samples; i++) {
         analyzer->input_buffer[analyzer->buffer_pos] = audio_samples[i];
@@ -148,8 +155,11 @@ void display_spectrum(analyzer_t* analyzer) {
     
     // Display spectrum bars
     int bin_step = (analyzer->config.fft_size/2) / display_bins;
+    if (bin_step < 1) bin_step = 1;
+    int bars = analyzer->config.fft_size/2;
+    if (bars > display_bins) bars = display_bins;
     
-    for (int i = 0; i < display_bins; i++) {
+    for (int i = 0; i < bars; i++) {
         int bin = i * bin_step;
         double freq = frequencies[bin];
         /* Before the first hop has completed, every average is still zero and
@@ -203,6 +213,40 @@ void simulate_audio_stream(analyzer_t* analyzer, int duration_seconds) {
     }
     
     free(audio_frame);
+}
+
+/* Time one forward transform, growing the batch until clock() resolves it.
+ * The analyzer reports this number, so it must come from the machine rather
+ * than from a constant in the demo. */
+static double measure_fft_ms(int n) {
+    complex_t* work = allocate_complex_array(n);
+    complex_t* seed = allocate_complex_array(n);
+    if (!work || !seed) {
+        free_complex_array(work);
+        free_complex_array(seed);
+        return 0.0;
+    }
+    for (int i = 0; i < n; i++)
+        seed[i] = sin(TWO_PI * 440.0 * i / 44100.0);
+
+    fft_timer_t timer;
+    int reps = 1;
+    double total = 0.0;
+    for (;;) {
+        timer_start(&timer);
+        for (int r = 0; r < reps; r++) {
+            memcpy(work, seed, (size_t)n * sizeof(complex_t));
+            radix2_dit_fft(work, n, FFT_FORWARD);
+        }
+        timer_stop(&timer);
+        total = timer.elapsed_ms;
+        if (total >= 10.0 || reps >= (1 << 16)) break;
+        reps *= 4;
+    }
+
+    free_complex_array(work);
+    free_complex_array(seed);
+    return total / reps;
 }
 
 // Frequency tracker
@@ -326,10 +370,17 @@ int main() {
     printf("\n\nPerformance Metrics:\n");
     printf("===================\n");
     
-    double fft_time = 0.1;  // Assume 0.1ms per FFT
-    double max_throughput = 1000.0 / (fft_time * config.fft_size / config.hop_size);
-    printf("- FFT computation time: %.2f ms\n", fft_time);
-    printf("- Max real-time factor: %.1fx\n", max_throughput);
+    double fft_time = measure_fft_ms(config.fft_size);
+    if (fft_time > 0.0) {
+        /* One FFT is due every hop, so the budget per transform is the hop
+         * duration, not fft_size / hop_size times it. */
+        double hop_ms = 1000.0 * config.hop_size / config.sample_rate;
+        double max_throughput = hop_ms / fft_time;
+        printf("- FFT computation time: %.4f ms (measured)\n", fft_time);
+        printf("- Max real-time factor: %.1fx\n", max_throughput);
+    } else {
+        printf("- FFT computation time: unavailable (allocation failed)\n");
+    }
     printf("- Latency: %.1f ms\n", 1000.0 * config.fft_size / config.sample_rate);
     
     // Tips for real implementation

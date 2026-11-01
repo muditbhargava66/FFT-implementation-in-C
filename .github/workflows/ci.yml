@@ -21,9 +21,11 @@ concurrency:
 # runner's default toolchain. A separate Linux job builds with ASan and UBSan.
 # The docs job is independent and builds MkDocs in strict mode.
 #
-# The GPU backend is left off everywhere. FFT_ENABLE_GPU defaults to OFF, the
-# CUDA sources have not been run against real hardware, and a CI lane that
-# cannot execute the code it builds would be reporting nothing.
+# FFT_ENABLE_GPU (CUDA) is left off everywhere: the CUDA sources have not been
+# run against real hardware. The macOS job additionally builds the opt-in Metal
+# backend. test_gpu_metal checks a real MPSGraph result when the runner exposes a
+# Metal device and reports a skip when it does not; the build and -Werror check
+# run either way.
 
 jobs:
   linux:
@@ -113,6 +115,23 @@ jobs:
             ./build/bin/$app >/dev/null
           done
           printf "\n" | ./build/bin/realtime_analyzer >/dev/null
+
+      - name: Build Metal backend
+        run: >
+          cmake -S . -B build-metal -DFFT_ENABLE_METAL=ON
+          -DCMAKE_C_FLAGS=-Werror -DCMAKE_OBJC_FLAGS=-Werror &&
+          cmake --build build-metal --target test_gpu_metal 2>&1 | tee build-metal.log
+
+      - name: Fail on Metal compiler warnings
+        run: |
+          if grep -q "warning:" build-metal.log; then
+            echo "Compiler warnings are not allowed:"
+            grep -n "warning:" build-metal.log
+            exit 1
+          fi
+
+      - name: Test Metal backend
+        run: ctest --test-dir build-metal -R test_gpu_metal --output-on-failure
 
   sanitizers:
     name: Linux / ASan + UBSan

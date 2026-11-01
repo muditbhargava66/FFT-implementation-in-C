@@ -21,7 +21,7 @@ if(CMAKE_CUDA_COMPILER)
     
     message(STATUS "CUDA support enabled with architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 else()
-    message(STATUS "CUDA not found - GPU acceleration disabled")
+    message(STATUS "CUDA not found - CUDA acceleration disabled")
 endif()
 
 # Set C standard
@@ -72,22 +72,56 @@ file(GLOB_RECURSE FFT_C_SOURCES CONFIGURE_DEPENDS
     "utils/*.c"
 )
 
-# The GPU sources are outside the default build and are not wired to the
-# planner. Enabling this compiles the CUDA objects; fft_gpu_* still resolves to
-# utils/fft_gpu_stubs.c, so execution remains on the CPU.
+# The Metal backend is opt-in because it requires macOS 14 and pulls in
+# MetalPerformanceShadersGraph. Without it, utils/fft_gpu_stubs.c provides the
+# fft_gpu_* symbols and reports no device.
+option(FFT_ENABLE_METAL
+    "Build the Metal/MPSGraph GPU backend (Apple Silicon, macOS 14+)" OFF)
+
+if(FFT_ENABLE_METAL AND NOT APPLE)
+    message(WARNING
+        "FFT_ENABLE_METAL is ON but this is not macOS; the Metal backend will "
+        "not be built and fft_gpu_* stays on the CPU stubs.")
+endif()
+
+if(APPLE AND FFT_ENABLE_METAL AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR
+        "FFT_ENABLE_METAL requires Clang: gpu/fft_metal.m is Objective-C with "
+        "automatic reference counting, which GCC does not implement.")
+endif()
+
+if(APPLE AND FFT_ENABLE_METAL)
+    enable_language(OBJC)
+    list(APPEND FFT_C_SOURCES gpu/fft_gpu.c gpu/fft_metal.m)
+    set_source_files_properties(gpu/fft_metal.m PROPERTIES
+        COMPILE_OPTIONS "-fobjc-arc")
+    message(STATUS "Metal backend enabled (MetalPerformanceShadersGraph)")
+endif()
+
+# Enabling this compiles the CUDA objects only. The dispatcher in gpu/fft_gpu.c
+# is not built for CUDA, so fft_gpu_* still resolves to the CPU stubs. Use
+# FFT_ENABLE_METAL on macOS for a backend that reaches the planner.
 option(FFT_ENABLE_GPU "Build the CUDA GPU objects (unmaintained; dispatch not wired up)" OFF)
 
 if(FFT_ENABLE_GPU AND NOT CMAKE_CUDA_COMPILER)
     message(WARNING "FFT_ENABLE_GPU is ON but no CUDA compiler was found; building CPU-only.")
 endif()
 if(FFT_ENABLE_GPU AND CMAKE_CUDA_COMPILER)
-    message(STATUS "GPU objects will be compiled, but fft_gpu_* still resolves to the CPU-only stubs (see CMakeLists.txt)")
-else()
-    message(STATUS "GPU backend disabled: CPU-only build")
+    message(STATUS "CUDA objects will be compiled, but fft_gpu_* still resolves to the CPU-only stubs")
 endif()
 
 add_library(fft_lib_c STATIC ${FFT_C_SOURCES})
 target_compile_definitions(fft_lib_c PRIVATE LIB_BUILD)
+
+if(APPLE AND FFT_ENABLE_METAL)
+    # Excludes utils/fft_gpu_stubs.c and selects gpu/fft_gpu.c.
+    target_compile_definitions(fft_lib_c PRIVATE FFT_GPU_ENABLED)
+    target_link_libraries(fft_lib_c PUBLIC
+        "-framework Foundation"
+        "-framework Metal"
+        "-framework MetalPerformanceShaders"
+        "-framework MetalPerformanceShadersGraph")
+endif()
 
 # libm is separate on Linux. PUBLIC so tests, benchmarks and applications
 # inherit it; MinGW and macOS resolve these symbols from the C runtime.
@@ -135,6 +169,12 @@ add_test(NAME test_all COMMAND test_all)
 add_executable(test_utils tests/test_utils.c)
 target_link_libraries(test_utils PRIVATE fft_lib)
 add_test(NAME test_utils COMMAND test_utils)
+
+if(APPLE AND FFT_ENABLE_METAL)
+    add_executable(test_gpu_metal tests/test_gpu_metal.c)
+    target_link_libraries(test_gpu_metal PRIVATE fft_lib)
+    add_test(NAME test_gpu_metal COMMAND test_gpu_metal)
+endif()
 
 # Add benchmarks
 add_executable(benchmark_all benchmarks/benchmark_all.c)

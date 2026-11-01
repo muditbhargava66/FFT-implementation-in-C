@@ -127,8 +127,9 @@ otherwise fails with multiple definitions of `main`.
 - **Threading.** The planner and wisdom cache use unlocked globals. The library
   is not thread-safe, and no threaded kernel exists.
 - **Fixed point.** There is no Q15 or integer path.
-- **GPU execution.** The CUDA and Metal sources are outside the default build;
-  `fft_gpu_*` resolves to CPU stubs, and no planner path reaches a GPU kernel.
+- **CUDA execution.** The CUDA sources compile only with `FFT_ENABLE_GPU`, but
+  they are not in any working dispatch path. The Metal backend is the one GPU
+  path that reaches the planner, and it is opt-in, macOS-only and float32.
 
 ## Remaining work
 

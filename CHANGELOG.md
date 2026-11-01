@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.2.0] - 2026-11-01
 
 3.2.0 exposes the utility module that the library already compiled, fixes the
-bugs in it, and tightens CI. No kernel, planner or wisdom-format change, so the
-3.0.0 timing results still describe this code.
+bugs in it, adds an opt-in Metal backend, and tightens CI. The CPU kernels and
+the wisdom format are unchanged, so the 3.0.0 CPU timing results still describe
+them; the GPU has separate one-shot numbers.
 
 ### Added
 - `include/fft_utils.h`, declaring signal generation, the Kaiser and Tukey
@@ -19,8 +20,35 @@ bugs in it, and tightens CI. No kernel, planner or wisdom-format change, so the
 - `tests/test_utils.c` with 40 checks, registered as a second CTest test.
 - Linux ASan/UBSan CI job with leak detection, running both test binaries and
   every application demo.
+- `-DFFT_ENABLE_METAL=ON` builds a working Metal backend from
+  `gpu/fft_metal.m` through MPSGraph (macOS 14+). It covers 1-D, batched,
+  in-place, 2-D and one-shot transforms, and `FFT_PREFER_GPU` reaches it for
+  complex, r2c, c2r and 2-D plans. `tests/test_gpu_metal.c` adds 70 checks
+  against a direct DFT. The device path is float32, so host doubles are
+  narrowed on upload and widened on download.
 
 ### Fixed
+- The Metal file did not compute an FFT. It created `MPSImageConversion`, a
+  color-space converter, and its convenience function called the CPU
+  `radix2_dit_fft`; 2-D planning returned `NULL`. It is replaced with MPSGraph
+  transforms, and `gpu/fft_gpu.c` is now compiled into the library when the
+  backend is enabled.
+- Hardware detection called `fft_gpu_get_backend()` without initializing the
+  backend, so the GPU capability bits were never set and `FFT_PREFER_GPU` could
+  not select a GPU. Detection now initializes first.
+- A GPU plan that failed to allocate its device buffers used to execute as a
+  silent no-op and report success. Plan creation now fails instead.
+- The 2-D and r2c/c2r planner paths called `execute_1d()` with a GPU algorithm
+  id, which returned `FFT_ERR_SIZE`. r2c/c2r now run through `fft_gpu_dft_1d()`,
+  and the 2-D path issues one `fft_gpu_dft_2d()` call instead of one launch per
+  row and column.
+- `fft_gpu_execute()` ignored the plan's direction for the Metal backend, and
+  the 1-D batch and 2-D entry points did not dispatch to Metal at all. It now
+  returns 0 or -1 so the planner can report a failed graph run instead of
+  reporting success.
+- `gpu_benchmark` timed a blocking GPU call with `clock()` (processor time) and
+  rejected float32 output at a 1e-6 threshold that the backend cannot meet. It
+  now uses the monotonic wall clock off Windows and a 1e-3 threshold.
 - `generate_chirp_signal()` multiplied the instantaneous frequency by time
   instead of integrating it, which swept at twice the requested rate.
 - `apply_window_kaiser()` divided by zero for a one-sample window;
@@ -42,8 +70,14 @@ bugs in it, and tightens CI. No kernel, planner or wisdom-format change, so the
 
 ### Changed
 - Windows CI runs `realtime_analyzer`, so all nine demos are exercised there.
+- The macOS CI job also builds the Metal backend with `-Werror` for C and
+  Objective-C and runs `test_gpu_metal`; the test reports a skip when the
+  runner has no Metal device.
 - Linux and macOS CI configure with `-Werror`; the warning grep stays as a
   second check.
+- Removed the `fft_gpu_set_mps_options()` and `fft_gpu_set_cuda_options()`
+  declarations. Neither had a definition, and the Metal backend has no runtime
+  precision or storage-mode switch to expose.
 - `docs/requirements.txt` raises the floors to mkdocs 1.6.1 and
   mkdocs-material 9.8.0. Dependabot's commit prefix no longer doubles the
   `(deps)` scope.
@@ -57,6 +91,9 @@ bugs in it, and tightens CI. No kernel, planner or wisdom-format change, so the
   rule, the forward/inverse scaling note and the recursive FFT's memory claim.
 - Removed duplicated performance tables and repeated error-contract text; the
   README links to the stable documentation version.
+- The README, API reference, performance guide, optimizations page, Windows
+  notes and security policy now describe the opt-in Metal backend instead of
+  saying no GPU path exists.
 - Rewrote the core-algorithm README, which still used repeated template blocks
   and star ratings that contradicted the measured results.
 

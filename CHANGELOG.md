@@ -72,6 +72,9 @@ so the 3.0.0 CPU timing results still describe them.
   caller's buffer untouched; it now matches `docs/api-reference.md`: an
   out-of-place failure leaves the input alone, while an in-place failure may
   leave the output partly written.
+- The macOS CI job is pinned to `macos-15` (arm64) instead of
+  `macos-latest`, which now resolves to macOS 26 Arm64 and queued during the
+  macOS 14 retirement migration.
 - `tests/test_utils.c` grows from 40 to 54 checks: Kaiser beta > 0, short
   windows, a non-null peak counter with a real peak, noise determinism,
   RNG-state preservation and amplitude, multi-tone generation and single-tone

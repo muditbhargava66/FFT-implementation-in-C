@@ -34,13 +34,15 @@ Release 3.3.0 was run locally on Windows 11 with MinGW-w64 GCC 13.2.0
 0 failed / 2 skipped, 0 warnings). The eight application demos and
 `gpu_benchmark` pass under both configurations; the Windows demos ran from a
 Release build with `-g` because application control blocked three optimized
-binaries by hash. The 3.2.0 macOS and Linux
-results are retained in the README history; its Metal build passed 70/70 GPU
-checks on an M1 Pro. CI runs both CPU test binaries, the benchmark pass/fail
-check and the demos on Linux, macOS and Windows MinGW-w64; 3.3.0 adds a CUDA
-compile-and-skip lane because hosted runners have no GPU. The CPU performance
-ratios come from a Windows 11 machine running the 3.0.0 kernels; the kernels
-have not changed since.
+binaries by hash. The 3.3.0 branch CI run passed all eight jobs: Linux GCC and
+Clang, macOS 15 arm64 (including the Metal build and test), ASan/UBSan, Windows
+MinGW-w64 GCC and Clang, the CUDA 12.6 compile-and-skip container lane, and
+strict docs. The macOS job is pinned to `macos-15` because `macos-latest` now
+resolves to macOS 26 Arm64 and queued during the macOS 14 retirement migration.
+The 3.2.0 macOS and Linux results are retained in the README history; its Metal
+build passed 70/70 GPU checks on an M1 Pro. The CPU performance ratios come from
+a Windows 11 machine running the 3.0.0 kernels; the kernels have not changed
+since.
 
 ## Background
 

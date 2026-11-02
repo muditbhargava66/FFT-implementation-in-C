@@ -96,23 +96,24 @@ double detect_pitch_peak(complex_t* spectrum, int n, double sample_rate) {
     }
     
     // Quadratic interpolation for more accurate frequency
+    double peak_pos = (double)peak_bin;
     if (peak_bin > 0 && peak_bin < n/2 - 1) {
         double y1 = magnitude[peak_bin - 1];
         double y2 = magnitude[peak_bin];
         double y3 = magnitude[peak_bin + 1];
         double denom = y1 - 2*y2 + y3;
         
-        if (denom != 0.0) {
+        if (denom != 0.0 && isfinite(denom) && isfinite(y1) && isfinite(y3)) {
             double delta = 0.5 * (y1 - y3) / denom;
             if (delta < -0.5) delta = -0.5;
             if (delta > 0.5) delta = 0.5;
-            peak_bin += delta;
+            peak_pos += delta;
         }
     }
     
     free(magnitude);
     
-    return peak_bin * sample_rate / n;
+    return peak_pos * sample_rate / n;
 }
 
 // Harmonic Product Spectrum (HPS) method

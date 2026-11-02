@@ -358,8 +358,10 @@ int main() {
     
     fft_timer_t timer;
 
-    /* The analysis above transformed the working buffer; start the timing pass
-     * from the original signal so the filter sees a full-scale input. */
+    /* The analysis above transformed the working buffer. Reset it once before
+     * the timing loop; later repetitions filter an already-filtered buffer.
+     * FFT work is data-independent, so the measured cost still describes one
+     * filter pass, but only the first repetition sees the original signal. */
     memcpy(signal, original, (size_t)signal_length * sizeof(complex_t));
 
     /* No time-domain FIR path is implemented here, so no FIR figure is printed.

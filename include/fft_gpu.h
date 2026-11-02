@@ -7,14 +7,19 @@
  * @file fft_gpu.h
  * @brief GPU interface (CUDA and Metal)
  *
- * The Metal backend is opt-in: configure with -DFFT_ENABLE_METAL=ON on macOS 14
- * or newer. It uses MPSGraph and therefore computes in float32, even though
- * complex_t is double; host data is narrowed on upload and widened on download.
- * Forward transforms are unscaled and inverse transforms carry 1/N, like the
- * CPU kernels.
+ * Two backends are opt-in:
  *
- * In a default build, and in a CUDA-only build, every fft_gpu_* symbol resolves
- * to utils/fft_gpu_stubs.c and reports no device.
+ * - CUDA (-DFFT_ENABLE_CUDA=ON), Linux and WSL only, built on cuFFT. It
+ *   computes in double precision like the CPU kernels. Native Windows builds
+ *   are not supported: the library needs C11 _Complex, MSVC does not provide
+ *   it, and nvcc on Windows requires MSVC as its host compiler.
+ * - Metal (-DFFT_ENABLE_METAL=ON), macOS 14 or newer, using MPSGraph. It
+ *   computes in float32, so host doubles are narrowed on upload and widened
+ *   on download.
+ *
+ * Without a backend, utils/fft_gpu_stubs.c provides the fft_gpu_* symbols and
+ * reports no device. Forward transforms are unscaled and inverse transforms
+ * carry 1/N on both backends, like the CPU kernels.
  */
 
 // GPU backend selection
@@ -177,8 +182,9 @@ const char* fft_gpu_get_device_name(void);
  * @param total Total memory in bytes
  * @param available Available memory in bytes
  *
+ * On CUDA these are the device total and the driver's current free memory.
  * On Metal, total is the recommended maximum working set and available is that
- * budget minus the device's current allocation. It is an estimate of headroom,
+ * budget minus the device's current allocation; it is an estimate of headroom,
  * not a driver free-memory query.
  */
 void fft_gpu_get_memory_info(size_t* total, size_t* available);

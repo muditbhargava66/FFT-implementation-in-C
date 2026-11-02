@@ -21,11 +21,12 @@ concurrency:
 # runner's default toolchain. A separate Linux job builds with ASan and UBSan.
 # The docs job is independent and builds MkDocs in strict mode.
 #
-# FFT_ENABLE_GPU (CUDA) is left off everywhere: the CUDA sources have not been
-# run against real hardware. The macOS job additionally builds the opt-in Metal
-# backend. test_gpu_metal checks a real MPSGraph result when the runner exposes a
-# Metal device and reports a skip when it does not; the build and -Werror check
-# run either way.
+# FFT_ENABLE_CUDA is exercised by a compile-and-skip job in an NVIDIA CUDA
+# container. GitHub-hosted runners have no GPU, so test_gpu_cuda reports a skip
+# (exit 77); real-device execution is verified locally on a GTX 1050 under WSL.
+# The macOS job additionally builds the opt-in Metal backend. test_gpu_metal
+# checks a real MPSGraph result when the runner exposes a Metal device and
+# reports a skip when it does not; the build and -Werror check run either way.
 
 jobs:
   linux:
@@ -78,7 +79,10 @@ jobs:
 
   macos:
     name: macOS / Apple Clang
-    runs-on: macos-latest
+    # Pin the image: macos-latest moved to macOS 26 Arm64, and the macOS 14
+    # retirement on 2026-11-02 has made the alias queue for a runner. macOS 15
+    # is a supported Arm64 image with Metal/MPSGraph and Xcode 16.
+    runs-on: macos-15
     timeout-minutes: 25
 
     steps:
@@ -234,6 +238,60 @@ jobs:
             ./build/bin/$app.exe >/dev/null
           done
           printf "\n" | ./build/bin/realtime_analyzer.exe >/dev/null
+
+  cuda-compile:
+    name: Linux / CUDA (build, no device)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container:
+      image: nvidia/cuda:12.6.3-devel-ubuntu22.04
+
+    steps:
+      # The CUDA devel images ship no git, and actions/checkout needs it.
+      - name: Install git
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates
+
+      - uses: actions/checkout@v7
+
+      - name: Install build tools
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            wget xz-utils ninja-build gcc g++ make
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-linux-x86_64.tar.gz -O /tmp/cmake.tar.gz
+          tar -xzf /tmp/cmake.tar.gz -C /opt
+          ln -sf /opt/cmake-3.29.2-linux-x86_64/bin/cmake /usr/local/bin/cmake
+          ln -sf /opt/cmake-3.29.2-linux-x86_64/bin/ctest /usr/local/bin/ctest
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_C_COMPILER=gcc
+          -DFFT_ENABLE_CUDA=ON
+          -DCMAKE_C_FLAGS=-Werror
+
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build 2>&1 | tee build.log
+
+      # nvcc formats its diagnostics as "nvcc warning :", so match optional
+      # whitespace before the colon as well as GCC/Clang's "warning:".
+      - name: Fail on compiler warnings
+        run: |
+          if grep -qE "warning[[:space:]]*:" build.log; then
+            echo "Compiler warnings are not allowed:"
+            grep -nE "warning[[:space:]]*:" build.log
+            exit 1
+          fi
+
+      # No GPU is attached to a hosted runner. test_gpu_cuda exits 77 and CTest
+      # records the test as skipped; everything else still has to pass.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
 
   docs:
     name: Docs / MkDocs (strict)

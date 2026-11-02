@@ -109,9 +109,11 @@ r2c/c2r and 2-D paths are covered by `test_all` rather than by this demo.
 
 Reports CPU timings and checks `fft_gpu_available()`. In a default build no GPU
 backend is compiled in, so it prints that the GPU is not available. With
-`-DFFT_ENABLE_METAL=ON` on macOS 14+ it initializes MPSGraph, times a forward
-transform at four sizes, and compares the result against the CPU kernel. The
-GPU call includes upload and read-back, so the speedup includes transfer time.
+`-DFFT_ENABLE_METAL=ON` on macOS 14+ it initializes MPSGraph, and with
+`-DFFT_ENABLE_CUDA=ON` on Linux/WSL it initializes cuFFT. Either way it times a
+forward transform at four sizes and compares the result against the CPU kernel.
+The GPU call includes upload and read-back, so the speedup includes transfer
+time.
 
 ## Reusing the code
 

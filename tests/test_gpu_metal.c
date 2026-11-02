@@ -475,7 +475,7 @@ static void test_invalid_arguments(void) {
 int main(void) {
   if (!fft_gpu_available()) {
     printf("Metal backend not available; skipping GPU checks.\n");
-    return 0;
+    return 77;
   }
 
   test_initialization();

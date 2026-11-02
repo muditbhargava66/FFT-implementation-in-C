@@ -1,342 +1,140 @@
-#ifdef __CUDACC__
-
-#include "../include/fft_gpu.h"
-#include <cuda_runtime.h>
-#include <cufft.h>
-#include <stdio.h>
-
-/**
- * @file fft_cuda.cu
- * @brief CUDA implementation of GPU-accelerated FFT
+/*
+ * CUDA/cuFFT backend.
  *
- * New in v2.0.0: Massive performance gains using NVIDIA GPUs
+ * This translation unit is compiled by nvcc as C++, so it deliberately does
+ * not include fft_common.h or fft_gpu.h: their C11 `_Complex` typedef is not
+ * accepted by the host C++ front end. The public dispatcher declares these
+ * functions with complex_t* arguments; C linkage does not encode pointer
+ * types, and complex_t has the same two-double layout as cufftDoubleComplex,
+ * so the declarations remain ABI-compatible.
+ *
+ * Forward transforms are unscaled; inverse transforms are scaled by 1/N on
+ * the device, matching the CPU kernels.
  */
 
-// GPU memory structure
+#include <cuda_runtime.h>
+#include <cufft.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct fft_gpu_memory {
   void *device_ptr;
-  size_t size;
+  size_t elements;
 };
 
-// GPU plan structure
 struct fft_gpu_plan {
-  cufftHandle cufft_plan;
-  int n;
-  int batch;
-  cufftType type;
+  cufftHandle handle;
+  int n;       /* transform length for 1-D, rows*cols for 2-D */
+  int batch;   /* 1 for 2-D */
+  int rows;    /* 0 for a 1-D plan */
+  int cols;
+  int direction; /* -1 forward, +1 inverse */
+  double inverse_scale;
 };
 
-// Global CUDA state
 static int g_cuda_initialized = 0;
 static int g_device_id = 0;
 
-// Error checking macro
-#define CUDA_CHECK(call)                                                       \
-  do {                                                                         \
-    cudaError_t error = call;                                                  \
-    if (error != cudaSuccess) {                                                \
-      fprintf(stderr, "CUDA error at %s:%d: %s\n", __FILE__, __LINE__,         \
-              cudaGetErrorString(error));                                      \
-      return -1;                                                               \
-    }                                                                          \
-  } while (0)
+int fft_gpu_dft_1d_batch_cuda(double *in, double *out, int n, int batch,
+                              int direction);
 
-#define CUFFT_CHECK(call)                                                      \
-  do {                                                                         \
-    cufftResult error = call;                                                  \
-    if (error != CUFFT_SUCCESS) {                                              \
-      fprintf(stderr, "cuFFT error at %s:%d: %d\n", __FILE__, __LINE__,        \
-              error);                                                          \
-      return -1;                                                               \
-    }                                                                          \
-  } while (0)
+static int elements_fit(size_t elements) {
+  return elements > 0 && elements <= SIZE_MAX / sizeof(cufftDoubleComplex) &&
+         elements <= (size_t)INT32_MAX;
+}
 
-// Initialize CUDA
 int fft_gpu_init_cuda(void) {
   if (g_cuda_initialized)
     return 0;
 
-  int device_count;
-  CUDA_CHECK(cudaGetDeviceCount(&device_count));
-
-  if (device_count == 0) {
-    fprintf(stderr, "No CUDA devices found\n");
+  int device_count = 0;
+  if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count <= 0)
     return -1;
-  }
 
-  // Select best device
   int best_device = 0;
-  int max_multiprocessors = 0;
-
+  int best_multiprocessors = -1;
   for (int i = 0; i < device_count; i++) {
     cudaDeviceProp props;
-    CUDA_CHECK(cudaGetDeviceProperties(&props, i));
-
-    if (props.multiProcessorCount > max_multiprocessors) {
-      max_multiprocessors = props.multiProcessorCount;
+    if (cudaGetDeviceProperties(&props, i) != cudaSuccess)
+      continue;
+    if (props.multiProcessorCount > best_multiprocessors) {
+      best_multiprocessors = props.multiProcessorCount;
       best_device = i;
     }
   }
 
-  CUDA_CHECK(cudaSetDevice(best_device));
+  if (cudaSetDevice(best_device) != cudaSuccess)
+    return -1;
+
   g_device_id = best_device;
   g_cuda_initialized = 1;
-
   return 0;
 }
 
-// Cleanup CUDA
 void fft_gpu_cleanup_cuda(void) {
   if (!g_cuda_initialized)
     return;
-
-  cudaDeviceReset();
+  /* Do not call cudaDeviceReset(): it destroys the primary context for the
+   * whole process, including work owned by other CUDA users in the host
+   * application. Finish outstanding work and drop the cached state instead. */
+  cudaDeviceSynchronize();
   g_cuda_initialized = 0;
 }
 
-// Check availability
 int fft_gpu_available_cuda(void) {
-  int device_count;
-  if (cudaGetDeviceCount(&device_count) != cudaSuccess) {
+  int device_count = 0;
+  if (cudaGetDeviceCount(&device_count) != cudaSuccess)
     return 0;
-  }
   return device_count > 0;
 }
 
-// Memory allocation
-fft_gpu_memory_t fft_gpu_alloc_cuda(size_t n) {
-  if (n == 0)
+struct fft_gpu_memory *fft_gpu_alloc_cuda(size_t elements) {
+  if (!elements_fit(elements))
     return NULL;
 
-  fft_gpu_memory_t mem = malloc(sizeof(struct fft_gpu_memory));
+  struct fft_gpu_memory *mem =
+      (struct fft_gpu_memory *)malloc(sizeof(struct fft_gpu_memory));
   if (!mem)
     return NULL;
 
-  mem->size = n * sizeof(complex_t);
-
-  if (cudaMalloc(&mem->device_ptr, mem->size) != cudaSuccess) {
+  mem->elements = elements;
+  if (cudaMalloc(&mem->device_ptr, elements * sizeof(cufftDoubleComplex)) !=
+      cudaSuccess) {
     free(mem);
     return NULL;
   }
-
   return mem;
 }
 
-// Memory free
-void fft_gpu_free_cuda(fft_gpu_memory_t mem) {
+void fft_gpu_free_cuda(struct fft_gpu_memory *mem) {
   if (!mem)
     return;
-
-  cudaFree(mem->device_ptr);
+  if (mem->device_ptr)
+    cudaFree(mem->device_ptr);
   free(mem);
 }
 
-// Memory copy host to device
-void fft_gpu_copy_h2d_cuda(fft_gpu_memory_t dst, const complex_t *src,
-                           size_t n) {
-  if (!dst || !src || n == 0)
+void fft_gpu_copy_h2d_cuda(struct fft_gpu_memory *dst, const double *src,
+                           size_t elements) {
+  if (!dst || !src || elements == 0 || elements > dst->elements)
     return;
-  cudaMemcpy(dst->device_ptr, src, n * sizeof(complex_t),
+  cudaMemcpy(dst->device_ptr, src, elements * sizeof(cufftDoubleComplex),
              cudaMemcpyHostToDevice);
 }
 
-// Memory copy device to host
-void fft_gpu_copy_d2h_cuda(complex_t *dst, fft_gpu_memory_t src, size_t n) {
-  if (!dst || !src || n == 0)
+void fft_gpu_copy_d2h_cuda(double *dst, const struct fft_gpu_memory *src,
+                           size_t elements) {
+  if (!dst || !src || elements == 0 || elements > src->elements)
     return;
-  cudaMemcpy(dst, src->device_ptr, n * sizeof(complex_t),
+  cudaMemcpy(dst, src->device_ptr, elements * sizeof(cufftDoubleComplex),
              cudaMemcpyDeviceToHost);
 }
-
-// Create FFT plan
-fft_gpu_plan_t fft_gpu_plan_1d_cuda(int n, int batch, fft_direction dir) {
-  if (n <= 0 || batch <= 0)
-    return NULL;
-
-  fft_gpu_plan_t plan = malloc(sizeof(struct fft_gpu_plan));
-  if (!plan)
-    return NULL;
-
-  plan->n = n;
-  plan->batch = batch;
-  plan->type = (dir == FFT_FORWARD) ? CUFFT_Z2Z : CUFFT_Z2Z;
-
-  if (batch == 1) {
-    if (cufftPlan1d(&plan->cufft_plan, n, plan->type, 1) != CUFFT_SUCCESS) {
-      free(plan);
-      return NULL;
-    }
-  } else {
-    int dims[] = {n};
-    if (cufftPlanMany(&plan->cufft_plan, 1, dims, NULL, 1, n, NULL, 1, n,
-                      plan->type, batch) != CUFFT_SUCCESS) {
-      free(plan);
-      return NULL;
-    }
-  }
-
-  return plan;
-}
-
-// Execute FFT
-void fft_gpu_execute_cuda(fft_gpu_plan_t plan, fft_gpu_memory_t in,
-                          fft_gpu_memory_t out, fft_direction dir) {
-  if (!plan || !in || !out)
-    return;
-
-  cufftDoubleComplex *in_ptr = (cufftDoubleComplex *)in->device_ptr;
-  cufftDoubleComplex *out_ptr = (cufftDoubleComplex *)out->device_ptr;
-
-  cufftExecZ2Z(plan->cufft_plan, in_ptr, out_ptr,
-               (dir == FFT_FORWARD) ? CUFFT_FORWARD : CUFFT_INVERSE);
-
-  // Scale for inverse transform
-  if (dir == FFT_INVERSE) {
-    // Launch scaling kernel
-    int threads = 256;
-    int blocks = (plan->n * plan->batch + threads - 1) / threads;
-
-    scale_kernel<<<blocks, threads>>>(out_ptr, plan->n * plan->batch,
-                                      1.0 / plan->n);
-  }
-
-  cudaDeviceSynchronize();
-}
-
-// Destroy plan
-void fft_gpu_destroy_plan_cuda(fft_gpu_plan_t plan) {
-  if (!plan)
-    return;
-
-  cufftDestroy(plan->cufft_plan);
-  free(plan);
-}
-
-// Get device name
-const char *fft_gpu_get_device_name_cuda(void) {
-  static char name[256];
-  cudaDeviceProp props;
-
-  if (cudaGetDeviceProperties(&props, g_device_id) == cudaSuccess) {
-    snprintf(name, sizeof(name), "%s", props.name);
-    return name;
-  }
-
-  return "Unknown CUDA Device";
-}
-
-// Get memory info
-void fft_gpu_get_memory_info_cuda(size_t *total, size_t *available) {
-  cudaMemGetInfo(available, total);
-}
-
-// Convenience function for 1D FFT
-int fft_gpu_dft_1d_cuda(complex_t *in, complex_t *out, int n,
-                        fft_direction dir) {
-  return fft_gpu_dft_1d_batch_cuda(in, out, n, 1, dir);
-}
-
-// Batched 1D FFT
-int fft_gpu_dft_1d_batch_cuda(complex_t *in, complex_t *out, int n, int batch,
-                              fft_direction dir) {
-  if (!g_cuda_initialized) {
-    if (fft_gpu_init_cuda() != 0)
-      return -1;
-  }
-
-  // Allocate GPU memory
-  fft_gpu_memory_t gpu_in = fft_gpu_alloc_cuda(n * batch);
-  fft_gpu_memory_t gpu_out = fft_gpu_alloc_cuda(n * batch);
-
-  if (!gpu_in || !gpu_out) {
-    fft_gpu_free_cuda(gpu_in);
-    fft_gpu_free_cuda(gpu_out);
-    return -1;
-  }
-
-  // Create plan
-  fft_gpu_plan_t plan = fft_gpu_plan_1d_cuda(n, batch, dir);
-  if (!plan) {
-    fft_gpu_free_cuda(gpu_in);
-    fft_gpu_free_cuda(gpu_out);
-    return -1;
-  }
-
-  // Copy input to GPU
-  fft_gpu_copy_h2d_cuda(gpu_in, in, n * batch);
-
-  // Execute FFT
-  fft_gpu_execute_cuda(plan, gpu_in, gpu_out, dir);
-
-  // Copy result back
-  fft_gpu_copy_d2h_cuda(out, gpu_out, n * batch);
-
-  // Cleanup
-  fft_gpu_destroy_plan_cuda(plan);
-  fft_gpu_free_cuda(gpu_in);
-  fft_gpu_free_cuda(gpu_out);
-
-  return 0;
-}
-
-// Create 2D FFT plan
-fft_gpu_plan_t fft_gpu_plan_2d_cuda(int rows, int cols, fft_direction dir) {
-  if (rows <= 0 || cols <= 0)
-    return NULL;
-
-  fft_gpu_plan_t plan = malloc(sizeof(struct fft_gpu_plan));
-  if (!plan)
-    return NULL;
-
-  plan->n = rows * cols;
-  plan->batch = 1;
-  plan->type = CUFFT_Z2Z;
-
-  if (cufftPlan2d(&plan->cufft_plan, rows, cols, plan->type) != CUFFT_SUCCESS) {
-    free(plan);
-    return NULL;
-  }
-
-  return plan;
-}
-
-// 2D FFT execution
-int fft_gpu_dft_2d_cuda(complex_t *in, complex_t *out, int rows, int cols,
-                        fft_direction dir) {
-  if (!g_cuda_initialized) {
-    if (fft_gpu_init_cuda() != 0)
-      return -1;
-  }
-
-  size_t size = rows * cols;
-  fft_gpu_memory_t gpu_in = fft_gpu_alloc_cuda(size);
-  fft_gpu_memory_t gpu_out = fft_gpu_alloc_cuda(size);
-
-  if (!gpu_in || !gpu_out) {
-    fft_gpu_free_cuda(gpu_in);
-    fft_gpu_free_cuda(gpu_out);
-    return -1;
-  }
-
-  fft_gpu_plan_t plan = fft_gpu_plan_2d_cuda(rows, cols, dir);
-  if (!plan) {
-    fft_gpu_free_cuda(gpu_in);
-    fft_gpu_free_cuda(gpu_out);
-    return -1;
-  }
-
-  fft_gpu_copy_h2d_cuda(gpu_in, in, size);
-  fft_gpu_execute_cuda(plan, gpu_in, gpu_out, dir);
-  fft_gpu_copy_d2h_cuda(out, gpu_out, size);
-
-  fft_gpu_destroy_plan_cuda(plan);
-  fft_gpu_free_cuda(gpu_in);
-  fft_gpu_free_cuda(gpu_out);
-
-  return 0;
-}
-
-// Custom kernels for optimized operations
 
 __global__ void scale_kernel(cufftDoubleComplex *data, int n, double scale) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -346,37 +144,184 @@ __global__ void scale_kernel(cufftDoubleComplex *data, int n, double scale) {
   }
 }
 
-__global__ void butterfly_kernel(cufftDoubleComplex *data, int n, int stage) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+struct fft_gpu_plan *fft_gpu_plan_1d_cuda(int n, int batch, int direction) {
+  if (n <= 0 || batch <= 0 || !elements_fit((size_t)n * (size_t)batch))
+    return NULL;
 
-  if (idx >= n / 2)
-    return;
+  struct fft_gpu_plan *plan =
+      (struct fft_gpu_plan *)calloc(1, sizeof(struct fft_gpu_plan));
+  if (!plan)
+    return NULL;
 
-  // Cooley-Tukey radix-2 butterfly
-  int butterflySize = 1 << (stage + 1);
-  int butterflyGroup = idx / (butterflySize / 2);
-  int butterflyIdx = idx % (butterflySize / 2);
+  plan->n = n;
+  plan->batch = batch;
+  plan->rows = 0;
+  plan->cols = 0;
+  plan->direction = direction;
+  plan->inverse_scale = 1.0 / (double)n;
 
-  int i = butterflyGroup * butterflySize + butterflyIdx;
-  int j = i + butterflySize / 2;
-
-  // Twiddle factor: W_n^k = exp(-2*pi*i*k/n)
-  double angle = -2.0 * M_PI * butterflyIdx / butterflySize;
-  cufftDoubleComplex twiddle;
-  twiddle.x = cos(angle);
-  twiddle.y = sin(angle);
-
-  // Butterfly operation: [a, b] -> [a + W*b, a - W*b]
-  cufftDoubleComplex temp;
-  temp.x = data[j].x * twiddle.x - data[j].y * twiddle.y;
-  temp.y = data[j].x * twiddle.y + data[j].y * twiddle.x;
-
-  cufftDoubleComplex t0 = data[i];
-
-  data[i].x = t0.x + temp.x;
-  data[i].y = t0.y + temp.y;
-  data[j].x = t0.x - temp.x;
-  data[j].y = t0.y - temp.y;
+  int dims[1] = {n};
+  if (cufftPlanMany(&plan->handle, 1, dims, NULL, 1, n, NULL, 1, n,
+                    CUFFT_Z2Z, batch) != CUFFT_SUCCESS) {
+    free(plan);
+    return NULL;
+  }
+  return plan;
 }
 
-#endif // __CUDACC__
+struct fft_gpu_plan *fft_gpu_plan_2d_cuda(int rows, int cols, int direction) {
+  if (rows <= 0 || cols <= 0 ||
+      !elements_fit((size_t)rows * (size_t)cols))
+    return NULL;
+
+  struct fft_gpu_plan *plan =
+      (struct fft_gpu_plan *)calloc(1, sizeof(struct fft_gpu_plan));
+  if (!plan)
+    return NULL;
+
+  plan->n = rows * cols;
+  plan->batch = 1;
+  plan->rows = rows;
+  plan->cols = cols;
+  plan->direction = direction;
+  plan->inverse_scale = 1.0 / ((double)rows * (double)cols);
+
+  /* For the row-major buffer used here, data[r*cols + c], cuFFT's 2-D plan
+   * takes the row count first: plan2d(rows, cols) matches a direct DFT over r
+   * and c. Swapping the arguments transposes the result. Verified against the
+   * rectangular 8x16 and 5x7 cases in test_gpu_cuda. */
+  if (cufftPlan2d(&plan->handle, rows, cols, CUFFT_Z2Z) != CUFFT_SUCCESS) {
+    free(plan);
+    return NULL;
+  }
+  return plan;
+}
+
+int fft_gpu_execute_cuda(struct fft_gpu_plan *plan,
+                         const struct fft_gpu_memory *in,
+                         const struct fft_gpu_memory *out) {
+  if (!plan || !in || !out || !in->device_ptr || !out->device_ptr)
+    return -1;
+
+  size_t total = plan->rows > 0 ? (size_t)plan->n
+                                : (size_t)plan->n * (size_t)plan->batch;
+  if (in->elements < total || out->elements < total || total > INT32_MAX)
+    return -1;
+
+  cufftDoubleComplex *in_ptr = (cufftDoubleComplex *)in->device_ptr;
+  cufftDoubleComplex *out_ptr = (cufftDoubleComplex *)out->device_ptr;
+  int direction = plan->direction < 0 ? CUFFT_FORWARD : CUFFT_INVERSE;
+
+  if (cufftExecZ2Z(plan->handle, in_ptr, out_ptr, direction) != CUFFT_SUCCESS)
+    return -1;
+
+  if (direction == CUFFT_INVERSE) {
+    int threads = 256;
+    size_t blocks = (total + (size_t)threads - 1) / (size_t)threads;
+    scale_kernel<<<(unsigned int)blocks, threads>>>(out_ptr, (int)total,
+                                                    plan->inverse_scale);
+    if (cudaGetLastError() != cudaSuccess)
+      return -1;
+  }
+
+  return cudaDeviceSynchronize() == cudaSuccess ? 0 : -1;
+}
+
+void fft_gpu_destroy_plan_cuda(struct fft_gpu_plan *plan) {
+  if (!plan)
+    return;
+  if (plan->handle)
+    cufftDestroy(plan->handle);
+  free(plan);
+}
+
+const char *fft_gpu_get_device_name_cuda(void) {
+  static char name[256];
+  cudaDeviceProp props;
+  if (cudaGetDeviceProperties(&props, g_device_id) != cudaSuccess)
+    return "Unknown CUDA Device";
+  snprintf(name, sizeof(name), "%s", props.name);
+  return name;
+}
+
+void fft_gpu_get_memory_info_cuda(size_t *total, size_t *available) {
+  if (!total || !available)
+    return;
+  *total = 0;
+  *available = 0;
+  cudaMemGetInfo(available, total);
+}
+
+int fft_gpu_dft_1d_cuda(double *in, double *out, int n, int direction) {
+  return fft_gpu_dft_1d_batch_cuda(in, out, n, 1, direction);
+}
+
+int fft_gpu_dft_1d_batch_cuda(double *in, double *out, int n, int batch,
+                              int direction) {
+  if (!in || !out || n <= 0 || batch <= 0)
+    return -1;
+  size_t total = (size_t)n * (size_t)batch;
+  if (!elements_fit(total))
+    return -1;
+  if (fft_gpu_init_cuda() != 0)
+    return -1;
+
+  struct fft_gpu_memory *gpu_in = fft_gpu_alloc_cuda(total);
+  struct fft_gpu_memory *gpu_out = fft_gpu_alloc_cuda(total);
+  struct fft_gpu_plan *plan = fft_gpu_plan_1d_cuda(n, batch, direction);
+  if (!gpu_in || !gpu_out || !plan) {
+    fft_gpu_free_cuda(gpu_in);
+    fft_gpu_free_cuda(gpu_out);
+    fft_gpu_destroy_plan_cuda(plan);
+    return -1;
+  }
+
+  int result = -1;
+  fft_gpu_copy_h2d_cuda(gpu_in, in, total);
+  if (fft_gpu_execute_cuda(plan, gpu_in, gpu_out) == 0) {
+    fft_gpu_copy_d2h_cuda(out, gpu_out, total);
+    result = 0;
+  }
+
+  fft_gpu_destroy_plan_cuda(plan);
+  fft_gpu_free_cuda(gpu_in);
+  fft_gpu_free_cuda(gpu_out);
+  return result;
+}
+
+int fft_gpu_dft_2d_cuda(double *in, double *out, int rows, int cols,
+                        int direction) {
+  if (!in || !out || rows <= 0 || cols <= 0)
+    return -1;
+  size_t total = (size_t)rows * (size_t)cols;
+  if (!elements_fit(total))
+    return -1;
+  if (fft_gpu_init_cuda() != 0)
+    return -1;
+
+  struct fft_gpu_memory *gpu_in = fft_gpu_alloc_cuda(total);
+  struct fft_gpu_memory *gpu_out = fft_gpu_alloc_cuda(total);
+  struct fft_gpu_plan *plan = fft_gpu_plan_2d_cuda(rows, cols, direction);
+  if (!gpu_in || !gpu_out || !plan) {
+    fft_gpu_free_cuda(gpu_in);
+    fft_gpu_free_cuda(gpu_out);
+    fft_gpu_destroy_plan_cuda(plan);
+    return -1;
+  }
+
+  int result = -1;
+  fft_gpu_copy_h2d_cuda(gpu_in, in, total);
+  if (fft_gpu_execute_cuda(plan, gpu_in, gpu_out) == 0) {
+    fft_gpu_copy_d2h_cuda(out, gpu_out, total);
+    result = 0;
+  }
+
+  fft_gpu_destroy_plan_cuda(plan);
+  fft_gpu_free_cuda(gpu_in);
+  fft_gpu_free_cuda(gpu_out);
+  return result;
+}
+
+#ifdef __cplusplus
+}
+#endif

@@ -5,6 +5,86 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-11-02
+
+3.3.0 makes the CUDA backend real on Linux, closes the planner and utility
+contract gaps found after 3.2.0, and brings the documentation back in line with
+what is actually verified. The CPU kernels and the wisdom format are unchanged,
+so the 3.0.0 CPU timing results still describe them.
+
+### Added
+- `-DFFT_ENABLE_CUDA=ON` builds `gpu/fft_cuda.cu` against cuFFT for Linux
+  (including WSL) and wires it into `gpu/fft_gpu.c`. The backend covers 1-D,
+  batched, in-place, 2-D and one-shot transforms, and `FFT_PREFER_GPU` reaches
+  it for complex, r2c and 2-D plans. It uses cuFFT's double-precision Z2Z
+  transform, so no precision is lost on upload; the inverse scaling is applied
+  on the device. Native Windows is rejected at configure time with an
+  explanation, because nvcc needs MSVC, which cannot compile the library's C11
+  `_Complex` code, and CUDA 13 dropped Pascal (`sm_61`).
+- `tests/test_gpu_cuda.c` with 74 checks against a direct DFT, covering sizes
+  from 1 to 1024, rectangular and non-power-of-two 2-D shapes, plan reuse,
+  plan direction, the planner paths and invalid arguments. It exits 77 (skip)
+  when no CUDA device is present, and CTest records that as a skip.
+- A Linux `cuda-compile` CI job that configures and builds with
+  `-DFFT_ENABLE_CUDA=ON` inside an `nvidia/cuda` container. It runs without a
+  GPU and compiles every CUDA source; the runtime test reports a skip.
+- A regression check in `test_all` that a length above Bluestein's 2^29 limit
+  is rejected at plan time instead of yielding a plan whose execute fails.
+
+### Fixed
+- `fft_plan_dft_1d()` could return a plan for a non-power-of-two length above
+  Bluestein's limit. `select_algorithm()` chose Bluestein, the plan was
+  non-`NULL`, and every `fft_execute()` then returned `FFT_ERR_RANGE`. The
+  planner now validates that the selected algorithm can handle the size and
+  returns `NULL` otherwise. The same validation covers the 2-D and
+  real-transform entry points.
+- `load_complex_array()` accepted a misspelled `# Size:` header after the data
+  as "no header", and silently ignored rows beyond the declared count. It now
+  requires a well-formed `# Size:` line before any sample, rejects data that
+  precedes the header, and rejects both truncated and extra rows. On every
+  failure it leaves `*data == NULL` and `*n == 0`.
+- `generate_noise()` called `srand(seed)`, reseeding the C library's global
+  random state for the whole process. It now uses a local xorshift32 generator,
+  so a caller's own `rand()` sequence is left alone.
+- `pitch_detection` interpolated the parabolic peak offset into an `int`,
+  discarding the fractional bin. The estimate now stays in `double` and is
+  validated for finite input.
+- `test_gpu_metal` reported a pass when no Metal device was present. It now
+  returns 77 so CTest records a skip, and both GPU tests carry
+  `SKIP_RETURN_CODE 77`.
+- `print_spectrum_plot()` prints U+2588 block characters on Windows consoles
+  that cannot render them; the bar now falls back to `#` when built for
+  Windows.
+- The CUDA probe ran before the MSVC guard, so a native Windows configure
+  failed on a missing `cl.exe` before reaching the message that explains why
+  MSVC is unsupported. The guard now runs first.
+- `fft_auto.c` stored an unused `flags` copy in every plan; it is removed.
+- The Metal comment in `CMakeLists.txt` described the wrong source file, and
+  the `fft_filtering` timing comment implied later repetitions re-transform
+  the original signal. Both now match the code.
+
+### Changed
+- `FFT_ENABLE_GPU` is a deprecated alias for `FFT_ENABLE_CUDA`. It used to
+  compile CUDA objects that nothing dispatched to; it now selects the wired-up
+  backend on supported hosts, and native Windows stops at configure time with
+  the explanation above.
+- `CONTRIBUTING.md` no longer promises that a failed transform leaves the
+  caller's buffer untouched; it now matches `docs/api-reference.md`: an
+  out-of-place failure leaves the input alone, while an in-place failure may
+  leave the output partly written.
+- The macOS CI job is pinned to `macos-15` (arm64) instead of
+  `macos-latest`, which now resolves to macOS 26 Arm64 and queued during the
+  macOS 14 retirement migration.
+- `tests/test_utils.c` grows from 40 to 54 checks: Kaiser beta > 0, short
+  windows, a non-null peak counter with a real peak, noise determinism,
+  RNG-state preservation and amplitude, multi-tone generation and single-tone
+  peak finding, and the new file-format error cases.
+- `README.md`, `docs/getting-started.md`, `docs/windows.md`, `docs/index.md`,
+  `docs/performance.md`, `docs/optimizations.md`, `docs/applications.md`,
+  `docs/api-reference.md` and `docs/quickstart.md` describe 3.3.0 and the
+  CUDA backend. The verified-builds table adds the current Windows and
+  WSL/CUDA rows above the retained historical rows.
+
 ## [3.2.0] - 2026-11-01
 
 3.2.0 exposes the utility module that the library already compiled, fixes the
@@ -364,7 +444,8 @@ were removed in 3.0.0; see that entry for the details.*
 - Example programs
 - Basic documentation
 
-[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v2.0.0...v3.0.0

@@ -34,11 +34,20 @@ void generate_noise(complex_t* signal, int n, double amplitude, unsigned int see
     if (!signal || n <= 0)
         return;
 
-    srand(seed);
-    
+    /* A local xorshift keeps the library from reseeding the process-wide
+     * rand() stream that the host application may be using. */
+    unsigned int state = seed ? seed : 0x9e3779b9u;
     for (int i = 0; i < n; i++) {
-        double real = amplitude * (2.0 * rand() / RAND_MAX - 1.0);
-        double imag = amplitude * (2.0 * rand() / RAND_MAX - 1.0);
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        double real = amplitude * (2.0 * ((double)state / 4294967296.0) - 1.0);
+
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        double imag = amplitude * (2.0 * ((double)state / 4294967296.0) - 1.0);
+
         signal[i] = real + I * imag;
     }
 }
@@ -148,71 +157,67 @@ int load_complex_array(const char* filename, complex_t** data, int* n) {
     FILE* fp = fopen(filename, "r");
     if (!fp)
         return -1;
-    
+
     char line[256];
-    
-    // Read header and determine size
+    int declared = 0;
+    int saw_size = 0;
+
+    /* The size header must come before any sample rows. Counting data rows
+     * first and then overwriting the count with a later header accepted a
+     * malformed header whenever the row count happened to match. */
     while (fgets(line, sizeof(line), fp)) {
-        if (line[0] != '#') {
-            (*n)++;
-        } else if (strstr(line, "Size:")) {
-            int declared = 0;
-            if (sscanf(line, "# Size: %d", &declared) == 1 && declared > 0)
-                *n = declared;
-            break;
+        if (line[0] == '#') {
+            if (strstr(line, "Size:")) {
+                if (sscanf(line, "# Size: %d", &declared) != 1 ||
+                    declared <= 0)
+                    goto fail;
+                saw_size = 1;
+                break;
+            }
+            continue;
         }
+        goto fail; /* sample row before the size header */
     }
-    
-    if (*n == 0) {
-        fclose(fp);
-        return -1;
-    }
-    
-    // Allocate array
+    if (!saw_size)
+        goto fail;
+
+    *n = declared;
     *data = allocate_complex_array(*n);
     if (!*data) {
-        fclose(fp);
         *n = 0;
-        return -1;
-    }
-    
-    // Read data
-    if (fseek(fp, 0, SEEK_SET) != 0) {
-        fclose(fp);
-        free_complex_array(*data);
-        *data = NULL;
-        *n = 0;
-        return -1;
-    }
-    int idx = 0;
-    while (fgets(line, sizeof(line), fp) && idx < *n) {
-        if (line[0] != '#') {
-            int i;
-            double real, imag;
-            if (sscanf(line, "%d %lf %lf", &i, &real, &imag) == 3) {
-                (*data)[idx++] = real + I * imag;
-            }
-        }
-    }
-    
-    if (ferror(fp)) {
-        fclose(fp);
-        free_complex_array(*data);
-        *data = NULL;
-        *n = 0;
-        return -1;
+        goto fail;
     }
 
-    if (idx != *n) {
-        fclose(fp);
-        free_complex_array(*data);
-        *data = NULL;
-        *n = 0;
-        return -1;
+    if (fseek(fp, 0, SEEK_SET) != 0)
+        goto fail_data;
+
+    int idx = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#')
+            continue;
+        if (idx >= *n)
+            goto fail_data; /* more sample rows than the header declared */
+
+        int i;
+        double real, imag;
+        if (sscanf(line, "%d %lf %lf", &i, &real, &imag) != 3)
+            goto fail_data;
+        (*data)[idx++] = real + I * imag;
     }
+
+    if (ferror(fp) || idx != *n)
+        goto fail_data;
 
     fclose(fp);
     return 0;
+
+fail_data:
+    free_complex_array(*data);
+    *data = NULL;
+    *n = 0;
+fail:
+    fclose(fp);
+    return -1;
 }
 
 // Spectrum analysis utilities
@@ -236,7 +241,10 @@ void find_spectral_peaks(complex_t* spectrum, int n, double sample_rate,
             double y2 = magnitude[i];
             double y3 = magnitude[i+1];
             double denom = y1 - 2*y2 + y3;
-            double delta = denom != 0.0 ? 0.5 * (y1 - y3) / denom : 0.0;
+            double delta = (denom != 0.0 && isfinite(denom) && isfinite(y1) &&
+                            isfinite(y3))
+                               ? 0.5 * (y1 - y3) / denom
+                               : 0.0;
             if (delta < -0.5) delta = -0.5;
             if (delta > 0.5) delta = 0.5;
             double freq = (i + delta) * sample_rate / n;
@@ -291,7 +299,14 @@ void print_spectrum_plot(complex_t* spectrum, int n, double sample_rate, int wid
     printf("Freq (Hz) |");
     for (int i = 0; i < width; i++) printf("-");
     printf("| Magnitude\n");
-    
+
+#ifdef _WIN32
+    /* Legacy cmd.exe code pages do not render U+2588; use ASCII there. */
+    const char *bar = "#";
+#else
+    const char *bar = "\xE2\x96\x88"; /* U+2588 FULL BLOCK */
+#endif
+
     // Plot first half (positive frequencies)
     int step = (n/2) / 20;  // Show 20 frequency bins
     if (step < 1) step = 1;
@@ -301,7 +316,7 @@ void print_spectrum_plot(complex_t* spectrum, int n, double sample_rate, int wid
         int bar_length = max_mag > 0 ? (int)(width * magnitude[i] / max_mag) : 0;
         
         printf("%8.1f |", freq);
-        for (int j = 0; j < bar_length; j++) printf("█");
+        for (int j = 0; j < bar_length; j++) printf("%s", bar);
         for (int j = bar_length; j < width; j++) printf(" ");
         printf("| %.3f\n", magnitude[i]);
     }

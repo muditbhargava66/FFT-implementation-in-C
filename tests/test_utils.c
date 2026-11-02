@@ -90,13 +90,23 @@ static void test_windows(void) {
   check(cabs(signal[3] - 1.0) < 1e-12,
         "Tukey leaves the middle at unity");
 
-  /* These calls used to dereference the pointer immediately. Reaching the
-   * next check is the assertion. */
+  for (int i = 0; i < 8; i++) signal[i] = 1.0 + 0.0 * I;
+  apply_window_kaiser(signal, 8, 5.0);
+  check(cabs(signal[0]) < 0.05 && cabs(signal[3]) > 0.5,
+        "Kaiser beta>0 tapers the ends and keeps the centre");
+
+  /* These calls used to dereference the pointer immediately. The sentinel
+   * checks that a one-sample window is left unchanged rather than divided by
+   * zero. */
+  complex_t one[1] = {3.0 + 4.0 * I};
+  complex_t sentinel[1] = {3.0 + 4.0 * I};
   apply_window_kaiser(NULL, 8, 1.0);
   apply_window_tukey(NULL, 8, 1.0);
   apply_window_kaiser(signal, 0, 1.0);
-  apply_window_tukey(signal, 1, 1.0);
-  check(1, "window functions ignore null or short input");
+  apply_window_kaiser(one, 1, 5.0);
+  apply_window_tukey(one, 1, 0.5);
+  check(cabs(one[0] - sentinel[0]) < 1e-12,
+        "window functions ignore null or short input");
 }
 
 static void test_snr(void) {
@@ -134,8 +144,8 @@ static void test_zero_pad(void) {
 }
 
 static void test_spectrum_guards(void) {
-  double freqs[2] = {0.0, 0.0};
-  double mags[2] = {0.0, 0.0};
+  double freqs[2] = {42.0, 43.0};
+  double mags[2] = {44.0, 45.0};
   int peaks = 7;
 
   find_spectral_peaks(NULL, 16, 1000.0, freqs, mags, &peaks, 2);
@@ -143,7 +153,8 @@ static void test_spectrum_guards(void) {
 
   peaks = 7;
   find_spectral_peaks(NULL, 16, 1000.0, freqs, mags, NULL, 2);
-  check(1, "peak finder accepts a null peak counter");
+  check(freqs[0] == 42.0 && mags[0] == 44.0,
+        "peak finder with a null counter writes nothing");
 
   print_spectrum_plot(NULL, 16, 1000.0, 20);
   save_gnuplot_script(NULL, NULL, NULL, NULL);
@@ -156,7 +167,74 @@ static void test_spectrum_guards(void) {
   check(cabs(signal[0] - before[0]) < 1e-12 &&
             cabs(signal[3] - before[3]) < 1e-12,
         "zero frequency shift leaves the signal unchanged");
-  check(1, "plot, script and shift helpers reject null input");
+}
+
+static void test_spectrum_peaks(void) {
+  enum { N = 16 };
+  complex_t spectrum[N] = {0};
+  double freqs[4], mags[4];
+  int peaks = 0;
+
+  spectrum[4] = 10.0;
+  spectrum[3] = 1.0;
+  spectrum[5] = 1.0;
+
+  find_spectral_peaks(spectrum, N, 1600.0, freqs, mags, &peaks, 4);
+  check(peaks == 1, "peak finder finds the single local maximum");
+  if (peaks == 1) {
+    check(fabs(freqs[0] - 400.0) < 100.0,
+          "peak frequency is within one bin of the tone");
+    check(fabs(mags[0] - 10.0) < 1e-12, "peak magnitude is reported");
+  }
+}
+
+static void test_noise(void) {
+  enum { N = 16 };
+  complex_t a[N], b[N], c[N];
+
+  srand(1234);
+  int baseline = rand();
+  srand(1234);
+  generate_noise(a, N, 0.5, 42u);
+  check(rand() == baseline, "generate_noise does not reseed rand()");
+
+  generate_noise(b, N, 0.5, 42u);
+  int same = 1;
+  for (int i = 0; i < N; i++)
+    if (cabs(a[i] - b[i]) > 1e-15) same = 0;
+  check(same, "generate_noise is deterministic for a seed");
+
+  generate_noise(c, N, 0.5, 43u);
+  int differs = 0;
+  for (int i = 0; i < N; i++)
+    if (cabs(a[i] - c[i]) > 1e-15) differs = 1;
+  check(differs, "a different seed produces different noise");
+
+  double max_value = 0.0;
+  for (int i = 0; i < N; i++) {
+    if (fabs(creal(a[i])) > max_value) max_value = fabs(creal(a[i]));
+    if (fabs(cimag(a[i])) > max_value) max_value = fabs(cimag(a[i]));
+  }
+  check(max_value <= 0.5 + 1e-12, "noise stays inside the amplitude bound");
+}
+
+static void test_multi_tone(void) {
+  enum { N = 32 };
+  complex_t signal[N];
+  double frequencies[2] = {100.0, 300.0};
+  double amplitudes[2] = {1.0, 0.5};
+
+  generate_multi_tone(signal, N, frequencies, amplitudes, 2, 1600.0);
+  check(cabs(signal[0]) < 1e-12, "multi-tone starts at zero phase");
+  check(cabs(signal[1]) > 1e-9, "multi-tone produces non-zero samples");
+  check(fabs(cimag(signal[1])) < 1e-12, "multi-tone output is real-valued");
+
+  complex_t untouched[2] = {7.0 + 1.0 * I, 8.0 + 2.0 * I};
+  generate_multi_tone(NULL, N, frequencies, amplitudes, 2, 1600.0);
+  generate_multi_tone(untouched, 0, frequencies, amplitudes, 2, 1600.0);
+  check(cabs(untouched[0] - (7.0 + 1.0 * I)) < 1e-12 &&
+            cabs(untouched[1] - (8.0 + 2.0 * I)) < 1e-12,
+        "multi-tone ignores invalid sizes");
 }
 
 static void test_file_roundtrip(void) {
@@ -186,6 +264,9 @@ static void test_file_errors(void) {
   const char *missing = "test_utils_missing.txt";
   const char *malformed = "test_utils_malformed.txt";
   const char *truncated = "test_utils_truncated.txt";
+  const char *late_header = "test_utils_late_header.txt";
+  const char *extra_rows = "test_utils_extra_rows.txt";
+  const char *no_header = "test_utils_no_header.txt";
   complex_t sample[1] = {1.0 + 0.0 * I};
   complex_t *loaded = (complex_t *)0x1;
   int n = 7;
@@ -222,6 +303,33 @@ static void test_file_errors(void) {
             n == 0,
         "load rejects a truncated sample list");
   remove(truncated);
+
+  /* A malformed Size line after the data used to be accepted because the row
+   * count had already been recorded. */
+  write_text(late_header, "0 1.0 2.0\n# Size: banana\n");
+  loaded = (complex_t *)0x1;
+  n = 7;
+  check(load_complex_array(late_header, &loaded, &n) == -1 && loaded == NULL &&
+            n == 0,
+        "load rejects a size header after the data");
+  remove(late_header);
+
+  /* More rows than the header declares must not be silently truncated. */
+  write_text(extra_rows, "# Size: 2\n0 1.0 0.0\n1 2.0 0.0\n2 3.0 0.0\n");
+  loaded = (complex_t *)0x1;
+  n = 7;
+  check(load_complex_array(extra_rows, &loaded, &n) == -1 && loaded == NULL &&
+            n == 0,
+        "load rejects rows beyond the declared count");
+  remove(extra_rows);
+
+  write_text(no_header, "0 1.0 0.0\n");
+  loaded = (complex_t *)0x1;
+  n = 7;
+  check(load_complex_array(no_header, &loaded, &n) == -1 && loaded == NULL &&
+            n == 0,
+        "load requires a size header");
+  remove(no_header);
 }
 
 int main(void) {
@@ -233,6 +341,9 @@ int main(void) {
   test_snr();
   test_zero_pad();
   test_spectrum_guards();
+  test_spectrum_peaks();
+  test_noise();
+  test_multi_tone();
   test_file_roundtrip();
   test_file_errors();
 

@@ -1,9 +1,9 @@
 # Performance Guide
 
 The numbers on this page were measured on the Windows machine described below
-using the 3.0.0 kernels. Releases 3.1.0 and 3.2.0 do not change the kernels, so
-they still describe them. They are not a cross-platform comparison. Correctness
-was re-checked on Linux and macOS (see the README).
+using the 3.0.0 kernels. Releases 3.1.0, 3.2.0 and 3.3.0 do not change the CPU
+kernels, so they still describe them. They are not a cross-platform comparison.
+Correctness was re-checked on Linux, macOS and Windows (see the README).
 
 ## How the numbers were measured
 
@@ -77,10 +77,9 @@ complex numbers of scratch, mixed-radix about n.
 
 ## What is not measured
 
-There is no SIMD, threaded or fixed-point kernel to measure. The CUDA sources
-under `gpu/` are not part of a working dispatch path, and a default build
-resolves every `fft_gpu_*` symbol to a CPU stub. The opt-in Metal backend is
-measured separately below and is not part of the CPU ratio tables.
+There is no SIMD, threaded or fixed-point kernel to measure. The opt-in Metal
+and CUDA backends are measured separately below and are not part of the CPU
+ratio tables.
 
 `fft_recursive`, `naive_dft` and `optimized_dft` are excluded from the ratio
 table. They are reference implementations, and the DFTs are O(n²): a naive
@@ -108,6 +107,27 @@ The backend computes in float32 while the CPU kernels use double. Maximum
 relative error against the CPU result was 4.5e-6 at 1024 and 5.3e-4 at 1048576.
 These are single-machine one-shot measurements; they are not comparable to the
 Windows ratios above.
+
+## CUDA backend
+
+`gpu_benchmark` in a `-DFFT_ENABLE_CUDA=ON` build times one forward transform
+per size, including host upload, cuFFT execution and host read-back. On the
+GTX 1050 used for verification, under WSL with CUDA 11.5.119:
+
+| n | CPU (radix-2 DIT) | GPU (cuFFT) | Ratio |
+| --- | --- | --- | --- |
+| 1024 | 0.090 ms | 0.406 ms | 0.22x |
+| 4096 | 0.375 ms | 0.558 ms | 0.67x |
+| 65536 | 7.308 ms | 2.051 ms | 3.56x |
+| 1048576 | 192.278 ms | 14.340 ms | 13.41x |
+
+The GPU is slower for small transforms because of the transfer and launch
+overhead, and because the GTX 1050 has little FP64 throughput. It wins from
+65536 points on this machine and by 13.4x at 1048576. The CUDA path stays in
+double precision; maximum relative error against the CPU kernel was 1.4e-13 at
+1024, 1.2e-12 at 4096, 3.6e-11 at 65536 and 3.8e-9 at 1048576. These are
+one-shot measurements, not a sustained batched comparison, and they use a
+consumer Pascal card rather than a datacenter GPU.
 
 ## Operation counts
 

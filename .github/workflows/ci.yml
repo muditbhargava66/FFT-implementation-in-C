@@ -270,13 +270,17 @@ jobs:
           -DCMAKE_C_FLAGS=-Werror
 
       - name: Build
-        run: cmake --build build 2>&1 | tee build.log
+        run: |
+          set -o pipefail
+          cmake --build build 2>&1 | tee build.log
 
+      # nvcc formats its diagnostics as "nvcc warning :", so match optional
+      # whitespace before the colon as well as GCC/Clang's "warning:".
       - name: Fail on compiler warnings
         run: |
-          if grep -q "warning:" build.log; then
+          if grep -qE "warning[[:space:]]*:" build.log; then
             echo "Compiler warnings are not allowed:"
-            grep -n "warning:" build.log
+            grep -nE "warning[[:space:]]*:" build.log
             exit 1
           fi
 

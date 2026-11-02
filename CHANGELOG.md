@@ -66,20 +66,21 @@ so the 3.0.0 CPU timing results still describe them.
 ### Changed
 - `FFT_ENABLE_GPU` is a deprecated alias for `FFT_ENABLE_CUDA`. It used to
   compile CUDA objects that nothing dispatched to; it now selects the wired-up
-  backend on supported hosts and warns on Windows.
+  backend on supported hosts, and native Windows stops at configure time with
+  the explanation above.
 - `CONTRIBUTING.md` no longer promises that a failed transform leaves the
   caller's buffer untouched; it now matches `docs/api-reference.md`: an
   out-of-place failure leaves the input alone, while an in-place failure may
   leave the output partly written.
 - `tests/test_utils.c` grows from 40 to 54 checks: Kaiser beta > 0, short
   windows, a non-null peak counter with a real peak, noise determinism,
-  RNG-state preservation and amplitude, multi-tone peak finding, and the new
-  file-format error cases.
+  RNG-state preservation and amplitude, multi-tone generation and single-tone
+  peak finding, and the new file-format error cases.
 - `README.md`, `docs/getting-started.md`, `docs/windows.md`, `docs/index.md`,
   `docs/performance.md`, `docs/optimizations.md`, `docs/applications.md`,
   `docs/api-reference.md` and `docs/quickstart.md` describe 3.3.0 and the
-  CUDA backend. The verified-builds table records the current Windows and
-  WSL/CUDA runs instead of the 3.0.0 Windows row.
+  CUDA backend. The verified-builds table adds the current Windows and
+  WSL/CUDA rows above the retained historical rows.
 
 ## [3.2.0] - 2026-11-01
 

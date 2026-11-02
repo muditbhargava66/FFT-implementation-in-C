@@ -270,6 +270,7 @@ jobs:
           -DCMAKE_C_FLAGS=-Werror
 
       - name: Build
+        shell: bash
         run: |
           set -o pipefail
           cmake --build build 2>&1 | tee build.log

@@ -79,7 +79,10 @@ jobs:
 
   macos:
     name: macOS / Apple Clang
-    runs-on: macos-latest
+    # Pin the image: macos-latest moved to macOS 26 Arm64, and the macOS 14
+    # retirement on 2026-11-02 has made the alias queue for a runner. macOS 15
+    # is a supported Arm64 image with Metal/MPSGraph and Xcode 16.
+    runs-on: macos-15
     timeout-minutes: 25
 
     steps:

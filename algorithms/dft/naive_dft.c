@@ -1,57 +1,16 @@
 #include "../../include/fft_common.h"
 #include "../../include/fft_algorithms.h"
 
-/**
- * @file naive_dft.c
- * @brief Direct DFT Implementation (O(n²) Reference)
- * 
- * @details
- * This file implements the Discrete Fourier Transform using the direct
- * mathematical definition. While computationally expensive (O(n²)), it serves
- * as a reference implementation for verifying the correctness of faster algorithms.
- * 
- * Mathematical Definition:
- * Forward DFT: X[k] = Σ(n=0 to N-1) x[n] * e^(-j2πkn/N)
- * Inverse DFT: x[n] = (1/N) * Σ(k=0 to N-1) X[k] * e^(j2πkn/N)
- * 
- * @author FFT Study Repository
- * @date 2024
- * 
- * Time Complexity: O(n²)
- * Space Complexity: O(n)
- * 
- * Applications:
- * - Reference implementation for testing
- * - Small data sets where n < 100
- * - Educational purposes
- * - When simplicity is more important than speed
+/*
+ * Direct DFT, O(n^2). Kept as the independent reference the tests compare the
+ * fast transforms against, and as the fallback for tiny sizes. The input is
+ * copied first because the outputs overwrite x bin by bin.
  */
 
-/**
- * @brief Compute DFT using direct definition
- * 
- * @details
- * This function implements the textbook definition of the DFT.
- * For each output frequency bin k, it computes the sum of all
- * input samples multiplied by the corresponding complex exponentials.
- * 
- * Data Structure Used:
- * - Temporary array to hold input while computing output in-place
- * 
- * Algorithm:
- * 1. Copy input to temporary array
- * 2. For each output bin k:
- *    a. Initialize sum to 0
- *    b. For each input sample j:
- *       - Compute complex exponential e^(dir*2πi*jk/n)
- *       - Multiply with input sample and add to sum
- *    c. Store sum in output[k]
- * 3. If inverse transform, scale by 1/n
- * 
- * @param x Input/output array of complex numbers
- * @param n Length of the array
- * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
- * @return FFT_OK, FFT_ERR_NULL, FFT_ERR_SIZE, or FFT_ERR_ALLOC
+/*
+ * X[k] = SUM_j x[j]*exp(dir*2*pi*i*j*k/n). The inverse direction is scaled by
+ * 1/n here, which is what lets callers treat every transform in the library
+ * as unnormalised.
  */
 fft_error_t naive_dft(complex_t* x, int n, fft_direction dir) {
     /* Input validation */
@@ -65,48 +24,29 @@ fft_error_t naive_dft(complex_t* x, int n, fft_direction dir) {
     /* Copy input to temporary array */
     memcpy(temp, x, (size_t)n * sizeof(complex_t));
     
-    /* 
-     * Direct DFT computation
-     * For each frequency bin k, compute the weighted sum
-     */
     for (int k = 0; k < n; k++) {
-        x[k] = 0;  /* Initialize accumulator */
+        x[k] = 0;
         
-        /* Sum over all time samples */
         for (int j = 0; j < n; j++) {
-            /* Compute phase: e^(dir * 2πi * jk / n) */
             double angle = dir * TWO_PI * j * k / n;
             complex_t twiddle = cexp(I * angle);
-            
-            /* Accumulate: X[k] += x[j] * e^(phase) */
             x[k] += temp[j] * twiddle;
         }
         
-        /* Scale for inverse transform */
         if (dir == FFT_INVERSE) {
             x[k] /= n;
         }
     }
     
-    /* Clean up */
     free_complex_array(temp);
     return FFT_OK;
 }
 
-/**
- * @brief Compute forward DFT
- * @param x Input/output array
- * @param n Array length
- */
+/* Convenience wrappers. */
 fft_error_t dft_forward(complex_t* x, int n) {
     return naive_dft(x, n, FFT_FORWARD);
 }
 
-/**
- * @brief Compute inverse DFT
- * @param x Input/output array
- * @param n Array length
- */
 fft_error_t dft_inverse(complex_t* x, int n) {
     return naive_dft(x, n, FFT_INVERSE);
 }

@@ -1,15 +1,10 @@
 #include "../../include/fft_common.h"
 #include "../../include/fft_algorithms.h"
 
-/**
- * Cooley-Tukey Radix-2 Decimation-in-Frequency (DIF) FFT
- * 
- * Unlike DIT, DIF performs the twiddle factor multiplication
- * before the recursive calls, dividing based on the first and
- * second halves of the input.
- * 
- * Time Complexity: O(n log n)
- * Space Complexity: O(1) for in-place operation
+/*
+ * Radix-2 decimation-in-frequency: log2(n) stages that split each block in
+ * half and apply the twiddle after the subtraction, then a final bit-reversal
+ * permutation. In place; no scratch buffer.
  */
 
 fft_error_t radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
@@ -18,7 +13,8 @@ fft_error_t radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
     
     int log2n = log2_int(n);
     
-    // Danielson-Lanczos algorithm (DIF variant)
+    /* Stages run from the full length down to size 2, the opposite order
+     * from DIT. */
     for (int stage = log2n; stage >= 1; stage--) {
         int m = 1 << stage;
         int half_m = m >> 1;
@@ -41,7 +37,7 @@ fft_error_t radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
         }
     }
     
-    // Bit-reversal permutation (done after computation in DIF)
+    /* DIF leaves the output in bit-reversed order, so permute at the end. */
     for (int i = 0; i < n; i++) {
         int j = bit_reverse(i, log2n);
         if (i < j) {
@@ -51,7 +47,7 @@ fft_error_t radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
         }
     }
     
-    // Scale for inverse FFT
+    /* Scale for inverse FFT. */
     if (dir == FFT_INVERSE) {
         for (int i = 0; i < n; i++) {
             x[i] /= n;
@@ -60,7 +56,7 @@ fft_error_t radix2_dif_fft(complex_t* x, int n, fft_direction dir) {
     return FFT_OK;
 }
 
-// Wrapper functions
+/* Convenience wrappers. */
 fft_error_t fft_radix2_dif(complex_t* x, int n) {
     return radix2_dif_fft(x, n, FFT_FORWARD);
 }

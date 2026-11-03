@@ -3,6 +3,7 @@
 #include "../../include/fft_gpu.h"
 #include <limits.h>
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,11 @@
 /**
  * @file fft_auto.c
  * @brief Planner, algorithm selection, wisdom cache, real and 2-D paths.
+ *
+ * Planning state is process-wide, so the hardware probe and the wisdom cache
+ * are guarded by spin locks built on C11 atomics. A plan itself is not a
+ * synchronization object: execute separate plans concurrently, not one plan
+ * from several threads.
  */
 
 /* Algorithm identifiers used both in plans and in the wisdom cache */
@@ -22,6 +28,9 @@ enum fft_algo {
   ALGO_MIXED_RADIX,
   ALGO_GPU_CUDA,
   ALGO_GPU_MPS,
+  ALGO_RADIX4_OMP,
+  ALGO_RADIX4_AVX2,
+  ALGO_FOUR_STEP,
   ALGO_COUNT
 };
 
@@ -32,9 +41,12 @@ static fft_error_t execute_1d(complex_t *buf, int len, fft_direction dir,
 
 /* Human-readable name for an algorithm */
 static const char *algorithm_name(enum fft_algo a) {
-  static const char *names[] = {"Radix-2 DIT", "Radix-2 DIF", "Radix-4",
-                                "Split-Radix", "Bluestein",   "Mixed-Radix",
-                                "GPU (CUDA)",  "GPU (Metal)"};
+  static const char *names[] = {"Radix-2 DIT",      "Radix-2 DIF",
+                                "Radix-4",          "Split-Radix",
+                                "Bluestein",        "Mixed-Radix",
+                                "GPU (CUDA)",       "GPU (Metal)",
+                                "Radix-4 (OpenMP)", "Radix-4 (AVX2)",
+                                "Four-Step"};
   return (a >= 0 && a < ALGO_COUNT) ? names[a] : "Unknown";
 }
 
@@ -64,81 +76,114 @@ struct fft_plan {
   fft_gpu_memory_t gpu_out;
 };
 
+/* The guarded sections are short: a few comparisons, or a 256-entry array
+ * copy. A spin lock avoids a dependency on pthreads, which MinGW does not
+ * provide through <threads.h>. */
+typedef struct {
+  atomic_flag flag;
+} fft_spinlock_t;
+
+#define FFT_SPINLOCK_INIT { ATOMIC_FLAG_INIT }
+
+static void spin_lock(fft_spinlock_t *lock) {
+  while (atomic_flag_test_and_set_explicit(&lock->flag, memory_order_acquire)) {
+  }
+}
+
+static void spin_unlock(fft_spinlock_t *lock) {
+  atomic_flag_clear_explicit(&lock->flag, memory_order_release);
+}
+
 // Global state
-static unsigned g_hardware_caps = 0;
-static int g_hardware_detected = 0;
+static atomic_uint g_hardware_caps;
+static atomic_int g_hardware_detected;
+static fft_spinlock_t g_hardware_lock = FFT_SPINLOCK_INIT;
 
 // Detect hardware capabilities
 static void detect_hardware(void) {
-  if (g_hardware_detected)
+  if (atomic_load_explicit(&g_hardware_detected, memory_order_acquire))
     return;
 
-  g_hardware_caps = 0;
+  spin_lock(&g_hardware_lock);
+  if (!atomic_load_explicit(&g_hardware_detected, memory_order_relaxed)) {
+    unsigned caps = 0;
 
 #ifdef __x86_64__
-  // Check CPU features
-  unsigned int eax, ebx, ecx, edx;
+    // Check CPU features
+    unsigned int eax, ebx, ecx, edx;
 
-  // Highest leaf this CPU answers. Leaf 7 does not exist on older parts, and
-  // reading it returns undefined data rather than zeroes.
-  __asm__ __volatile__("cpuid"
-                       : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-                       : "a"(0));
-  unsigned int max_leaf = eax;
-
-  // Leaf 1: EDX bit 25 = SSE, ECX bit 27 = OSXSAVE, ECX bit 28 = AVX
-  __asm__ __volatile__("cpuid"
-                       : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-                       : "a"(1));
-
-  /* CPUID says the silicon can run the instruction; only the operating system
-   * can say whether it preserves the vector register state across context
-   * switches. Without XCR0 bits 1 (SSE) and 2 (AVX) set, executing SSE/AVX
-   * raises #UD, so advertising support here would hand callers a crash. */
-  unsigned int xcr0 = 0;
-  int osxsave = (ecx & (1u << 27)) != 0;
-  if (osxsave) {
-    unsigned int hi;
-    __asm__ __volatile__("xgetbv" : "=a"(xcr0), "=d"(hi) : "c"(0));
-    (void)hi;
-  }
-
-  if ((edx & (1u << 25)) && (!osxsave || (xcr0 & 0x2)))
-    g_hardware_caps |= FFT_HW_CPU_SSE;
-
-  int avx_ok = (ecx & (1u << 28)) && osxsave && (xcr0 & 0x6) == 0x6;
-  if (avx_ok)
-    g_hardware_caps |= FFT_HW_CPU_AVX;
-
-  // Check AVX2
-  if (avx_ok && max_leaf >= 7) {
+    // Highest leaf this CPU answers. Leaf 7 does not exist on older parts, and
+    // reading it returns undefined data rather than zeroes.
     __asm__ __volatile__("cpuid"
                          : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-                         : "a"(7), "c"(0));
-    if (ebx & (1 << 5))
-      g_hardware_caps |= FFT_HW_CPU_AVX2;
-  }
+                         : "a"(0));
+    unsigned int max_leaf = eax;
+
+    // Leaf 1: EDX bit 25 = SSE, ECX bit 27 = OSXSAVE, ECX bit 28 = AVX
+    __asm__ __volatile__("cpuid"
+                         : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                         : "a"(1));
+
+    /* CPUID says the silicon can run the instruction; only the operating
+     * system can say whether it preserves the vector register state across
+     * context switches. Without XCR0 bits 1 (SSE) and 2 (AVX) set, executing
+     * SSE/AVX raises #UD, so advertising support here would hand callers a
+     * crash. */
+    unsigned int xcr0 = 0;
+    int osxsave = (ecx & (1u << 27)) != 0;
+    if (osxsave) {
+      unsigned int hi;
+      __asm__ __volatile__("xgetbv" : "=a"(xcr0), "=d"(hi) : "c"(0));
+      (void)hi;
+    }
+
+    if ((edx & (1u << 25)) && (!osxsave || (xcr0 & 0x2)))
+      caps |= FFT_HW_CPU_SSE;
+
+    int avx_ok = (ecx & (1u << 28)) && osxsave && (xcr0 & 0x6) == 0x6;
+    if (avx_ok)
+      caps |= FFT_HW_CPU_AVX;
+
+    // Check AVX2
+    if (avx_ok && max_leaf >= 7) {
+      __asm__ __volatile__("cpuid"
+                           : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                           : "a"(7), "c"(0));
+      if (ebx & (1 << 5))
+        caps |= FFT_HW_CPU_AVX2;
+    }
 #endif
 
 #ifdef __ARM_NEON
-  g_hardware_caps |= FFT_HW_CPU_NEON;
+    caps |= FFT_HW_CPU_NEON;
 #endif
 
 // Check GPU availability
 #if defined(FFT_GPU_CUDA_ENABLED) || defined(FFT_GPU_METAL_ENABLED)
-  /* fft_gpu_get_backend() only reports a backend after fft_gpu_init(); without
-   * the init the hardware flags were never set and GPU plans were unreachable. */
-  if (fft_gpu_available() && fft_gpu_init(FFT_GPU_AUTO) == 0) {
-    fft_gpu_backend_t backend = fft_gpu_get_backend();
-    if (backend == FFT_GPU_CUDA) {
-      g_hardware_caps |= FFT_HW_GPU_CUDA;
-    } else if (backend == FFT_GPU_METAL) {
-      g_hardware_caps |= FFT_HW_GPU_MPS;
+    /* fft_gpu_get_backend() only reports a backend after fft_gpu_init();
+     * without the init the hardware flags were never set and GPU plans were
+     * unreachable. */
+    if (fft_gpu_available() && fft_gpu_init(FFT_GPU_AUTO) == 0) {
+      fft_gpu_backend_t backend = fft_gpu_get_backend();
+      if (backend == FFT_GPU_CUDA) {
+        caps |= FFT_HW_GPU_CUDA;
+      } else if (backend == FFT_GPU_METAL) {
+        caps |= FFT_HW_GPU_MPS;
+      }
     }
-  }
 #endif
 
-  g_hardware_detected = 1;
+    atomic_store_explicit(&g_hardware_caps, caps, memory_order_release);
+    atomic_store_explicit(&g_hardware_detected, 1, memory_order_release);
+  }
+  spin_unlock(&g_hardware_lock);
+}
+
+/* detect_hardware() publishes the whole mask with a release store, so a
+ * reader that observes the detected flag sees every capability bit. */
+static unsigned hardware_caps(void) {
+  detect_hardware();
+  return atomic_load_explicit(&g_hardware_caps, memory_order_acquire);
 }
 
 /* Factor analysis for algorithm selection */
@@ -169,6 +214,9 @@ static int algorithm_handles_size(enum fft_algo algo, int n) {
   case ALGO_RADIX2_DIT:
   case ALGO_RADIX2_DIF:
   case ALGO_RADIX4:
+  case ALGO_RADIX4_OMP:
+  case ALGO_RADIX4_AVX2:
+  case ALGO_FOUR_STEP:
   case ALGO_SPLIT_RADIX:
     return is_power_of_two(n);
   case ALGO_BLUESTEIN:
@@ -188,9 +236,15 @@ static int algorithm_handles_size(enum fft_algo algo, int n) {
 static int algorithm_available(enum fft_algo algo) {
   switch (algo) {
   case ALGO_GPU_CUDA:
-    return (g_hardware_caps & FFT_HW_GPU_CUDA) != 0;
+    return (hardware_caps() & FFT_HW_GPU_CUDA) != 0;
   case ALGO_GPU_MPS:
-    return (g_hardware_caps & FFT_HW_GPU_MPS) != 0;
+    return (hardware_caps() & FFT_HW_GPU_MPS) != 0;
+  case ALGO_RADIX4_OMP:
+    return radix4_omp_available();
+  case ALGO_RADIX4_AVX2:
+    return radix4_avx2_available();
+  case ALGO_FOUR_STEP:
+    return four_step_available();
   case ALGO_COUNT:
     return 0;
   default:
@@ -201,21 +255,36 @@ static int algorithm_available(enum fft_algo algo) {
 /* Select best algorithm for given size */
 static enum fft_algo select_algorithm(int n, unsigned flags) {
   /* GPU preference */
+  const unsigned caps = hardware_caps();
   if (flags & FFT_PREFER_GPU) {
-    if (g_hardware_caps & FFT_HW_GPU_CUDA)
+    if (caps & FFT_HW_GPU_CUDA)
       return ALGO_GPU_CUDA;
-    if (g_hardware_caps & FFT_HW_GPU_MPS)
+    if (caps & FFT_HW_GPU_MPS)
       return ALGO_GPU_MPS;
   }
 
-  /* The size rules come from the ratios in docs/performance.md: radix-4 loses
-   * to radix-2 DIT at 16 and 64, ties at 256, and wins from 512 up, so 256 is
-   * the crossover. Bluestein won every non-power-of-two length measured, but
-   * needs about 9n complex numbers of scratch against mixed-radix's n. */
+  /* Size rules from docs/performance.md. Power-of-two lengths below 256 use
+   * radix-2 DIT, which is in place and fastest there; above that scalar
+   * radix-4 wins, with AVX2 from 4096 and OpenMP from 512K when threads exist.
+   * The four-step kernel is benchmarked but did not beat AVX2/OpenMP on the
+   * verification hosts, so the heuristic leaves it to FFT_MEASURE instead of
+   * forcing it at large sizes. Non-power-of-two lengths use Bluestein, which
+   * won every measured length but needs about 9n complex numbers of scratch
+   * against mixed-radix's n, so FFT_CONSERVE_MEMORY prefers mixed-radix when
+   * n has cheap factors. */
   if (is_power_of_two(n)) {
     if (flags & FFT_CONSERVE_MEMORY)
       return ALGO_RADIX2_DIT;
-    return (n <= 256) ? ALGO_RADIX2_DIT : ALGO_RADIX4;
+    if (n <= 256)
+      return ALGO_RADIX2_DIT;
+    /* Measured crossovers on the verification host. OpenMP wins at 512K and
+     * above when threads are available; the single-threaded AVX2 kernel wins
+     * down to 4096 points. */
+    if (n >= (1 << 19) && radix4_omp_available())
+      return ALGO_RADIX4_OMP;
+    if (n >= (1 << 12) && radix4_avx2_available())
+      return ALGO_RADIX4_AVX2;
+    return ALGO_RADIX4;
   }
 
   if ((flags & FFT_CONSERVE_MEMORY) && is_highly_composite(n))
@@ -234,31 +303,39 @@ typedef struct {
 
 static wisdom_entry_t g_wisdom[WISDOM_MAX];
 static int g_wisdom_count = 0;
+static fft_spinlock_t g_wisdom_lock = FFT_SPINLOCK_INIT;
 
 static int wisdom_lookup(int n, unsigned flags, enum fft_algo *out) {
+  int found = 0;
+  spin_lock(&g_wisdom_lock);
   for (int i = 0; i < g_wisdom_count; i++) {
     if (g_wisdom[i].n == n && g_wisdom[i].flags == flags) {
       *out = g_wisdom[i].algo;
-      return 1;
+      found = 1;
+      break;
     }
   }
-  return 0;
+  spin_unlock(&g_wisdom_lock);
+  return found;
 }
 
 static void wisdom_store(int n, unsigned flags, enum fft_algo algo) {
-  for (int i = 0; i < g_wisdom_count; i++) {
+  spin_lock(&g_wisdom_lock);
+  int i;
+  for (i = 0; i < g_wisdom_count; i++) {
     if (g_wisdom[i].n == n && g_wisdom[i].flags == flags) {
       g_wisdom[i].algo = algo;
-      return;
+      break;
     }
   }
-  if (g_wisdom_count < WISDOM_MAX) {
+  if (i == g_wisdom_count && g_wisdom_count < WISDOM_MAX) {
     g_wisdom[g_wisdom_count].n = n;
     g_wisdom[g_wisdom_count].flags = flags;
     g_wisdom[g_wisdom_count].algo = algo;
     g_wisdom_count++;
   }
   /* A full cache stops recording; the heuristic still answers every plan. */
+  spin_unlock(&g_wisdom_lock);
 }
 
 /*
@@ -335,8 +412,9 @@ static int confirm_choice(enum fft_algo challenger, enum fft_algo incumbent,
  */
 static enum fft_algo measure_best_algorithm(int n, enum fft_algo default_algo) {
   static const enum fft_algo cpu_algorithms[] = {
-      ALGO_RADIX2_DIT, ALGO_RADIX2_DIF, ALGO_RADIX4,
-      ALGO_SPLIT_RADIX, ALGO_BLUESTEIN, ALGO_MIXED_RADIX};
+      ALGO_RADIX2_DIT,  ALGO_RADIX2_DIF, ALGO_RADIX4,
+      ALGO_RADIX4_OMP,  ALGO_RADIX4_AVX2, ALGO_FOUR_STEP,
+      ALGO_SPLIT_RADIX, ALGO_BLUESTEIN,   ALGO_MIXED_RADIX};
   const int num_algorithms =
       (int)(sizeof(cpu_algorithms) / sizeof(cpu_algorithms[0]));
   const int trials = 3;
@@ -367,7 +445,12 @@ static enum fft_algo measure_best_algorithm(int n, enum fft_algo default_algo) {
      * radix2_dit_fft(), which would make the sweep measure the same code twice
      * and let noise name a winner between them. */
     memcpy(scratch, seed, (size_t)n * sizeof(complex_t));
-    if (execute_1d(scratch, n, FFT_FORWARD, algo) != FFT_OK ||
+    if ((algo == ALGO_RADIX4_OMP &&
+         (n < (1 << 19) || !radix4_omp_available())) ||
+        (algo == ALGO_RADIX4_AVX2 &&
+         (n < (1 << 12) || !radix4_avx2_available())) ||
+        (algo == ALGO_FOUR_STEP && (n < (1 << 20) || !four_step_available())) ||
+        execute_1d(scratch, n, FFT_FORWARD, algo) != FFT_OK ||
         (algo == ALGO_MIXED_RADIX && is_power_of_two(n))) {
       best_ms[c] = -1.0;
       continue;
@@ -489,6 +572,9 @@ fft_plan_t fft_plan_dft_1d(int n, complex_t *in, complex_t *out, int sign,
   case ALGO_RADIX2_DIT:
   case ALGO_RADIX2_DIF:
   case ALGO_RADIX4:
+  case ALGO_RADIX4_OMP:
+  case ALGO_RADIX4_AVX2:
+  case ALGO_FOUR_STEP:
   case ALGO_SPLIT_RADIX:
   case ALGO_BLUESTEIN:
   case ALGO_MIXED_RADIX:
@@ -535,6 +621,9 @@ static fft_error_t execute_1d(complex_t *buf, int len, fft_direction dir,
   case ALGO_RADIX2_DIT: return radix2_dit_fft(buf, len, dir);
   case ALGO_RADIX2_DIF: return radix2_dif_fft(buf, len, dir);
   case ALGO_RADIX4:     return radix4_fft(buf, len, dir);
+  case ALGO_RADIX4_OMP: return radix4_omp_fft(buf, len, dir);
+  case ALGO_RADIX4_AVX2: return radix4_avx2_fft(buf, len, dir);
+  case ALGO_FOUR_STEP:  return four_step_fft(buf, len, dir);
   case ALGO_SPLIT_RADIX:return split_radix_fft(buf, len, dir);
   case ALGO_BLUESTEIN:  return bluestein_fft(buf, len, dir);
   case ALGO_MIXED_RADIX:return mixed_radix_fft(buf, len, dir);
@@ -742,10 +831,7 @@ const char *fft_plan_algorithm_name(fft_plan_t plan) {
 }
 
 // Hardware capabilities
-unsigned fft_get_hardware_capabilities(void) {
-  detect_hardware();
-  return g_hardware_caps;
-}
+unsigned fft_get_hardware_capabilities(void) { return hardware_caps(); }
 
 // Aligned memory allocation
 complex_t *fft_alloc_complex(size_t n) {
@@ -784,7 +870,7 @@ void fft_free(void *p) {
 
 // Version string
 const char *fft_version(void) {
-  return "FFT Library v3.3.0 (2026-11-02) - Automatic Algorithm Selection";
+  return "FFT Library v3.4.0 - Automatic Algorithm Selection";
 }
 
 /*
@@ -898,24 +984,31 @@ fft_plan_t fft_plan_dft_2d(int rows, int cols, complex_t *in, complex_t *out,
    The header carries the wisdom-format version (v3.0.0), not the library
    version, so older files remain valid. */
 char *fft_export_wisdom_to_string(void) {
+  /* Copy under the lock, format outside it: malloc and snprintf are much
+   * slower than the guarded array copy and do not need it. */
+  wisdom_entry_t snapshot[WISDOM_MAX];
+  spin_lock(&g_wisdom_lock);
+  const int count = g_wisdom_count;
+  memcpy(snapshot, g_wisdom, (size_t)count * sizeof(snapshot[0]));
+  spin_unlock(&g_wisdom_lock);
+
   /* Header + up to WISDOM_MAX entries of ~40 chars each */
-  size_t cap = 64 + (size_t)g_wisdom_count * 48;
+  size_t cap = 64 + (size_t)count * 48;
   char *buf = (char *)malloc(cap);
   if (!buf)
     return NULL;
 
-  int pos = snprintf(buf, cap, "# FFT Wisdom v3.0.0 (%d entries)\n",
-                     g_wisdom_count);
+  int pos = snprintf(buf, cap, "# FFT Wisdom v3.0.0 (%d entries)\n", count);
   if (pos < 0 || (size_t)pos >= cap) {
     free(buf);
     return NULL;
   }
   /* snprintf returns the length it *would* have written, so accumulating it
    * unguarded could push pos past cap and make cap - pos a huge size_t. */
-  for (int i = 0; i < g_wisdom_count; i++) {
+  for (int i = 0; i < count; i++) {
     int written = snprintf(buf + pos, cap - (size_t)pos, "%d %u %d\n",
-                           g_wisdom[i].n, g_wisdom[i].flags,
-                           (int)g_wisdom[i].algo);
+                           snapshot[i].n, snapshot[i].flags,
+                           (int)snapshot[i].algo);
     if (written < 0 || (size_t)written >= cap - (size_t)pos) break;
     pos += written;
   }
@@ -928,35 +1021,44 @@ int fft_import_wisdom_from_string(const char *wisdom) {
   if (!wisdom)
     return 0;
 
-  g_wisdom_count = 0;
+  /* Parse into a local array first, then replace the cache under the lock.
+   * A malformed or truncated input therefore leaves the previous cache
+   * intact instead of blanking it halfway through the parse. */
+  wisdom_entry_t parsed[WISDOM_MAX];
+  int parsed_count = 0;
   const char *p = wisdom;
 
   /* Skip header line */
   while (*p && *p != '\n') p++;
   if (*p) p++;
 
-  while (*p && g_wisdom_count < WISDOM_MAX) {
+  while (*p && parsed_count < WISDOM_MAX) {
     int n;
     unsigned flags;
     int algo;
     if (sscanf(p, "%d %u %d", &n, &flags, &algo) == 3 && n > 0 &&
         algo >= 0 && algo < ALGO_COUNT &&
         algorithm_handles_size((enum fft_algo)algo, n)) {
-      g_wisdom[g_wisdom_count].n = n;
-      g_wisdom[g_wisdom_count].flags = flags;
-      g_wisdom[g_wisdom_count].algo = (enum fft_algo)algo;
-      g_wisdom_count++;
+      parsed[parsed_count].n = n;
+      parsed[parsed_count].flags = flags;
+      parsed[parsed_count].algo = (enum fft_algo)algo;
+      parsed_count++;
     }
     while (*p && *p != '\n') p++;
     if (*p) p++;
   }
-  return g_wisdom_count;
+
+  spin_lock(&g_wisdom_lock);
+  memcpy(g_wisdom, parsed, (size_t)parsed_count * sizeof(parsed[0]));
+  g_wisdom_count = parsed_count;
+  spin_unlock(&g_wisdom_lock);
+  return parsed_count;
 }
 
 #ifndef LIB_BUILD
 
 int main() {
-  printf("FFT Auto - Automatic Algorithm Selection v3.3.0\n");
+  printf("FFT Auto - Automatic Algorithm Selection v3.4.0\n");
   printf("===============================================\n\n");
 
   int test_sizes[] = {16, 64, 256, 1024, 97, 360, 1000};

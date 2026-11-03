@@ -7,10 +7,11 @@
  * @file fft_auto.h
  * @brief Automatic FFT algorithm selection and planning
  * 
- * v3: Simplified API with automatic optimization, r2c/c2r FFTs, 2D FFT, wisdom cache
+ * Public planner API: automatic algorithm selection, r2c/c2r FFTs, 2D FFT,
+ * and the wisdom cache.
  */
 
-// FFT Planner - automatically selects best algorithm
+// FFT planner - automatically selects the best algorithm
 typedef struct fft_plan* fft_plan_t;
 
 // Execution hints for optimization.
@@ -27,7 +28,7 @@ typedef enum {
     FFT_PREFER_GPU  = 1<<9   // Use GPU if available
 } fft_flags_t;
 
-// Main API Functions (v3)
+// Main API
 
 /**
  * @brief Create an FFT plan with automatic algorithm selection
@@ -80,7 +81,8 @@ void fft_destroy_plan(fft_plan_t plan);
  * @brief Name of the algorithm a plan actually selected
  *
  * Lets callers (and demos, tests, and logs) report the real choice made by
- * select_algorithm() instead of restating its rules and drifting out of date.
+ * choose_algorithm() -- from the size/flag heuristic, the wisdom cache, or an
+ * FFT_MEASURE sweep -- instead of restating its rules and drifting out of date.
  *
  * @param plan The FFT plan
  * @return Pointer to a static string, e.g. "Radix-4"; "Unknown" for a null plan
@@ -90,12 +92,12 @@ const char* fft_plan_algorithm_name(fft_plan_t plan);
 // Simplified one-shot interface
 
 /**
- * @brief Perform FFT with automatic optimization (v3)
+ * @brief Perform an FFT with automatic algorithm selection
  * 
- * Automatically selects the best algorithm based on:
- * - Transform size
- * - Hardware capabilities
- * - Available memory
+ * Automatically selects the best algorithm from the transform size and the
+ * hardware capabilities. The one-shot call plans with FFT_ESTIMATE, so it does
+ * not time candidates; use fft_plan_dft_1d() with FFT_MEASURE when a program
+ * plans once and executes many times.
  * 
  * @param in Input array
  * @param out Output array (can be same as in)
@@ -188,7 +190,7 @@ typedef enum {
     FFT_HW_CPU_NEON   = 1<<4,
     FFT_HW_GPU_CUDA   = 1<<5,
     FFT_HW_GPU_MPS    = 1<<6,
-    FFT_HW_GPU_OPENCL = 1<<7
+    FFT_HW_GPU_OPENCL = 1<<7  /* Reserved; no backend reports it */
 } fft_hardware_t;
 
 unsigned fft_get_hardware_capabilities(void);

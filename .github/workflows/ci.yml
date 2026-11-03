@@ -19,7 +19,9 @@ concurrency:
 # MSYS2/MinGW-w64 (GCC and clang). Windows steps have to run inside the MSYS2
 # shell, so that job carries its own compiler matrix; the macOS job uses the
 # runner's default toolchain. A separate Linux job builds with ASan and UBSan.
-# The docs job is independent and builds MkDocs in strict mode.
+# The OpenMP lane builds the threaded kernel and runs the planner concurrency
+# test; the other lanes build the single-threaded fallback. The docs job is
+# independent and builds MkDocs in strict mode.
 #
 # FFT_ENABLE_CUDA is exercised by a compile-and-skip job in an NVIDIA CUDA
 # container. GitHub-hosted runners have no GPU, so test_gpu_cuda reports a skip
@@ -76,6 +78,42 @@ jobs:
             ./build/bin/$app >/dev/null
           done
           printf "\n" | timeout 120 ./build/bin/realtime_analyzer >/dev/null
+
+  openmp:
+    name: Linux / GCC + OpenMP
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DFFT_ENABLE_OPENMP=ON
+          -DCMAKE_C_FLAGS=-Werror
+
+      - name: Build
+        run: cmake --build build 2>&1 | tee build.log
+
+      - name: Fail on compiler warnings
+        run: |
+          if grep -q "warning:" build.log; then
+            echo "Compiler warnings are not allowed:"
+            grep -n "warning:" build.log
+            exit 1
+          fi
+
+      # ctest includes test_threads, which hammers the wisdom cache and the
+      # first-use hardware probe from several OpenMP threads.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Benchmark smoke test
+        run: |
+          ./build/bin/benchmark_all | tee bench.log
+          grep -E "^Failed: 0 " bench.log >/dev/null || {
+            echo "benchmark_all reported failing rows:"; grep -E "^Failed:" bench.log; exit 1; }
 
   macos:
     name: macOS / Apple Clang

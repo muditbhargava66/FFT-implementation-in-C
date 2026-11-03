@@ -1,73 +1,19 @@
 #include "../../include/fft_common.h"
 #include "../../include/fft_algorithms.h"
 
-/**
- * @file radix2_dit.c
- * @brief Cooley-Tukey Radix-2 Decimation-in-Time (DIT) FFT Implementation
- * 
- * @details
- * This file implements the classic Cooley-Tukey FFT algorithm using the
- * Decimation-in-Time (DIT) approach. The algorithm recursively divides
- * the DFT computation into smaller DFTs of even and odd indexed samples.
- * 
- * Algorithm Overview:
- * 1. Bit-reversal permutation to reorder input
- * 2. Iterative computation using butterfly operations
- * 3. Each stage combines pairs of smaller DFTs into larger ones
- * 
- * Mathematical Background:
- * The DFT of length N can be split into two DFTs of length N/2:
- *   X[k] = DFT_even[k] + W_N^k * DFT_odd[k]  for k = 0 to N/2-1
- *   X[k+N/2] = DFT_even[k] - W_N^k * DFT_odd[k]
- * where W_N^k = exp(-2πik/N) is the twiddle factor
- * 
- * @author FFT Study Repository
- * @date 2024
- * 
- * Time Complexity: O(n log n)
- * Space Complexity: O(1) for in-place operation
- * 
- * References:
- * [1] Cooley, J. W., & Tukey, J. W. (1965). "An algorithm for the machine 
- *     calculation of complex Fourier series"
- * [2] Brigham, E. O. (1988). "The Fast Fourier Transform and Its Applications"
- */
-
-/**
- * @brief Main Radix-2 DIT FFT implementation
- * 
- * @details
- * This function implements the iterative Cooley-Tukey FFT algorithm.
- * It uses an in-place computation approach with bit-reversal reordering
- * followed by log₂(n) stages of butterfly operations.
- * 
- * Data Structures:
- * - In-place array manipulation (no additional arrays needed)
- * - Bit-reversal permutation for initial reordering
- * - Complex number arithmetic for butterfly operations
- * 
- * Algorithm Steps:
- * 1. Validate input size is power of 2
- * 2. Perform bit-reversal permutation
- * 3. Execute log₂(n) stages of butterfly operations
- * 4. Scale output for inverse transform
- * 
- * @param x Input/output array of complex numbers
- * @param n Length of array (must be power of 2)
- * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
- * @return FFT_OK, FFT_ERR_NULL, or FFT_ERR_SIZE
+/*
+ * Radix-2 decimation-in-time: bit-reversal permutation, then log2(n) stages
+ * of butterflies. In place. Each stage advances its twiddle by w_m inside a
+ * block, so the inner loop does not call cexp().
  */
 fft_error_t radix2_dit_fft(complex_t* x, int n, fft_direction dir) {
     if (!x) return FFT_ERR_NULL;
     FFT_REQUIRE_POW2(n);
     
     int log2n = log2_int(n);
-    
-    /* 
-     * Step 1: Bit-reversal permutation
-     * Reorder array so that element at index i moves to bit_reverse(i)
-     * This allows the iterative algorithm to work in-place
-     */
+
+    /* Bit reversal is an involution: every pair shows up once as (i, j) and
+     * once as (j, i), so swapping only when i < j visits each pair once. */
     for (int i = 0; i < n; i++) {
         int j = bit_reverse(i, log2n);
         if (i < j) {  /* Swap only once */

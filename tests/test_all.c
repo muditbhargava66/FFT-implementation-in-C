@@ -27,18 +27,24 @@ typedef struct {
   const char *name;
   fft_error_t (*fft_func)(complex_t *, int, fft_direction);
   int requires_power_of_2;
+  int min_size;
   int max_size; /* skip sizes above this; direct DFTs are O(n^2) */
+  int (*is_available)(void); /* optional runtime gate for optional kernels */
 } fft_implementation_t;
 
 static fft_implementation_t implementations[] = {
-    {"Radix-2 DIT", radix2_dit_fft, 1, 16384},
-    {"Radix-2 DIF", radix2_dif_fft, 1, 16384},
-    {"Radix-4", radix4_fft, 1, 16384},
-    {"Split-Radix", split_radix_fft, 1, 16384},
-    {"Bluestein", bluestein_fft, 0, 4096},
-    {"Mixed-Radix", mixed_radix_fft, 0, 4096},
-    {"Recursive", fft_recursive, 1, 4096},
-    {"Naive DFT", naive_dft, 0, 256}};
+    {"Radix-2 DIT", radix2_dit_fft, 1, 1, 16384, NULL},
+    {"Radix-2 DIF", radix2_dif_fft, 1, 1, 16384, NULL},
+    {"Radix-4", radix4_fft, 1, 1, 16384, NULL},
+    {"Radix-4 OMP", radix4_omp_fft, 1, 524288, 524288, radix4_omp_available},
+    {"Radix-4 AVX2", radix4_avx2_fft, 1, 4096, 131072,
+     radix4_avx2_available},
+    {"Four-Step", four_step_fft, 1, 1048576, 1048576, four_step_available},
+    {"Split-Radix", split_radix_fft, 1, 1, 16384, NULL},
+    {"Bluestein", bluestein_fft, 0, 1, 4096, NULL},
+    {"Mixed-Radix", mixed_radix_fft, 0, 1, 4096, NULL},
+    {"Recursive", fft_recursive, 1, 1, 4096, NULL},
+    {"Naive DFT", naive_dft, 0, 1, 256, NULL}};
 
 static const int num_implementations =
     sizeof(implementations) / sizeof(implementations[0]);
@@ -430,6 +436,8 @@ static void test_rejects_invalid_size(void) {
    */
   for (int q = 0; q < num_implementations; q++) {
     fft_implementation_t *impl = &implementations[q];
+    if (impl->is_available && !impl->is_available()) continue;
+
     char scope[64];
     snprintf(scope, sizeof(scope), "%s errors", impl->name);
 
@@ -837,6 +845,35 @@ static void test_plan_api(test_config_t *config) {
     free(gout);
   }
 
+  /* The planner's size thresholds must agree with the kernels they name. */
+  {
+    const int big = 1 << 20;
+    complex_t *a = fft_alloc_complex((size_t)big);
+    complex_t *b = fft_alloc_complex((size_t)big);
+    if (!a || !b) {
+      report("plan api", "selection buffers", 0, 0.0, "out of memory");
+    } else {
+      fft_plan_t p = fft_plan_dft_1d(big, a, b, -1, FFT_ESTIMATE);
+      const char *name = p ? fft_plan_algorithm_name(p) : NULL;
+      const char *want = radix4_omp_available() ? "Radix-4 (OpenMP)"
+                         : radix4_avx2_available() ? "Radix-4 (AVX2)"
+                                                    : "Radix-4";
+      report("plan api", "1M selects the fastest available kernel",
+             p != NULL && name != NULL && strcmp(name, want) == 0, 0.0,
+             name);
+      fft_destroy_plan(p);
+
+      p = fft_plan_dft_1d(big, a, b, -1, FFT_CONSERVE_MEMORY);
+      name = p ? fft_plan_algorithm_name(p) : NULL;
+      report("plan api", "conserve memory selects Radix-2",
+             p != NULL && name != NULL && strcmp(name, "Radix-2 DIT") == 0, 0.0,
+             name);
+      fft_destroy_plan(p);
+    }
+    fft_free(a);
+    fft_free(b);
+  }
+
   free(src);
   free(work);
 }
@@ -844,8 +881,9 @@ static void test_plan_api(test_config_t *config) {
 /* ---------- driver ---------- */
 
 static int size_supported(fft_implementation_t *impl, int n) {
-  if (n > impl->max_size) return 0;
+  if (n < impl->min_size || n > impl->max_size) return 0;
   if (impl->requires_power_of_2 && !is_power_of_two(n)) return 0;
+  if (impl->is_available && !impl->is_available()) return 0;
   return 1;
 }
 
@@ -880,12 +918,14 @@ int main(int argc, char *argv[]) {
   test_plan_api(&config);
 
   /* Sizes outer so the O(n^2) reference is computed once per size.
-   * Includes 1, primes, 2*4^k (which only a true mixed-radix-4 handles),
+   * Includes powers of two with odd log2 (8, 32, 128, ...) so the radix-4
+   * path exercises its leading radix-2 stage, plus primes,
    * non-power-of-two composites, and sizes above 1024. */
   static const int sizes[] = {1,    2,    3,    4,    5,    6,    7,    8,
                               12,   15,   16,   20,   24,   30,   31,   32,
                               60,   64,   97,   128,  251,  256,  360,  512,
-                              1000, 1021, 1024, 2048, 4096, 16384};
+                              1000, 1021, 1024, 2048, 4096, 16384, 32768,
+                              131072, 524288, 1048576};
   const int num_sizes = (int)(sizeof(sizes) / sizeof(sizes[0]));
 
   for (int s = 0; s < num_sizes; s++) {

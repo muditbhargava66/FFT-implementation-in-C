@@ -3,15 +3,10 @@
 #include "../include/fft_utils.h"
 #include <time.h>
 
-/**
- * FFT Utility Functions
- * 
- * Common utilities for FFT operations including:
- * - Signal generation
- * - Window functions
- * - File I/O
- * - Visualization helpers
- * - Error analysis
+/*
+ * Shared helpers for the examples and tests: signal generation, window
+ * functions, binary file I/O, peak/SNR analysis, and ASCII spectrum plots.
+ * Generation and window routines edit the caller's buffer in place.
  */
 
 // Signal generators with parameters

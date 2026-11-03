@@ -1,17 +1,11 @@
 #include "../../include/fft_common.h"
 #include "../../include/fft_algorithms.h"
 
-/**
- * Optimized DFT Implementation
- * 
- * Applies various optimization techniques to the naive DFT:
- * - Precomputed twiddle factors
- * - Loop unrolling
- * - Cache-friendly memory access
- * - Strength reduction
- * - Real input optimization
- * 
- * Still O(n²) but with better constants
+/*
+ * Direct DFT with smaller constants than naive_dft: an n*n twiddle table for
+ * small n, four-way unrolled dot products above that, a conjugate-symmetric
+ * path for real input, and a Goertzel helper for single bins. Still O(n^2);
+ * use the fast transforms unless only a few bins or a tiny size are needed.
  */
 
 // Precompute and cache twiddle factors

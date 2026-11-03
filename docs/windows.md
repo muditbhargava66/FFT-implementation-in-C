@@ -7,8 +7,8 @@ there. Current release: **3.4.0 (3 November 2026)**.
 
 | Toolchain | Status |
 | --------- | ------ |
-| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified locally**: 3.4.0 with GCC 13.2.0, 1406/1406 + 54/54 checks, and 1415/1415 + 17712 with `-DFFT_ENABLE_OPENMP=ON`; the CI lane uses GCC 16.2.0 |
-| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI through 3.3.0** with Clang 23.1.3; the 3.4.0 lane uses the same compiler |
+| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified locally**: 3.4.0 with GCC 13.2.0, 1406/1406 + 54/54 checks, and 1415/1415 + 17712 with `-DFFT_ENABLE_OPENMP=ON`; the CI lane uses GCC 16.2.0 and passes CTest 2/2 with benchmarks 66/0/54 |
+| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI for 3.4.0** with Clang 23.1.4, CTest 2/2, benchmarks 66/0/54 and no compiler warnings |
 | clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
 | CUDA backend | **Not available natively**; verified under WSL on a GTX 1050 (CUDA 11.5) |

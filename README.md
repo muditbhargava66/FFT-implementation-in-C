@@ -168,6 +168,9 @@ with that explanation and points at WSL.
 | Ubuntu 22.04 WSL, GTX 1050 (`FFT_ENABLE_CUDA=ON`) | GCC 11.4.0 + CUDA 11.5.119 | 3.4.0: 1406/1406 + 54/54 + 74/74 GPU checks, 0 warnings; CTest 3/3; benchmarks 66/0/54 |
 | Ubuntu 22.04 WSL, `FFT_ENABLE_OPENMP=ON` | GCC 11.4.0 | 3.4.0: 1415/1415 + 17712 threaded checks, 0 warnings with `-Werror`; CTest 3/3 |
 | Ubuntu 22.04 WSL, ASan + UBSan | GCC 11.4.0 | 3.4.0: 1406/1406 + 54/54 checks, no sanitizer reports; CTest 2/2 |
+| macOS 15 arm64 (CI, `macos-15`) | Apple Clang | 3.4.0 CI: CTest 2/2 plus the Metal GPU test, 0 warnings; demos 9/9 |
+| Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.4.0 CI: 2/2 tests, 0 warnings; benchmarks 66/0/54; demos 9/9 |
+| Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.4 | 3.4.0 CI: 2/2 tests, 0 warnings; benchmarks 66/0/54; demos 9/9 |
 | Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.3.0: 1362/1362 + 54/54 checks, 0 warnings; CTest 2/2; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 22.04 WSL, GTX 1050 (`FFT_ENABLE_CUDA=ON`) | GCC 11.4.0 + CUDA 11.5.119 | 3.3.0: 1362/1362 + 54/54 + 74/74 GPU checks, 0 warnings; CTest 3/3; benchmarks 52/0/2; demos 9/9 |
 | macOS 15 arm64 (CI, `macos-15`) | Apple Clang | 3.3.0 CI: 2/2 CPU tests, 0 warnings; benchmarks 52/0/2; demos 9/9; Metal test passed |
@@ -191,7 +194,8 @@ GCC 11.4.0 (default, OpenMP `-Werror`, ASan/UBSan, and CUDA 11.5.119 on the GTX
 cross-build row proves the sources compile and link, not that the binaries run.
 The 3.4.0 CI workflow keeps the eight 3.3.0 lanes and adds an OpenMP lane that
 builds with `-Werror` and runs the generated `test_threads`, for nine jobs
-total. The macOS job is pinned to `macos-15` because `macos-latest` now resolves
+total. The first push run (`cc15dca`, run 41640913349) passed all nine jobs.
+The macOS job is pinned to `macos-15` because `macos-latest` now resolves
 to macOS 26 Arm64 and queued during the macOS 14 retirement migration. CPU
 performance figures in `docs/performance.md` come from the WSL 3.4.0 build; the
 CUDA numbers come from the GTX 1050. They are not a cross-platform comparison.

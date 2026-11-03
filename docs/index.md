@@ -38,6 +38,7 @@ checks with CTest 3/3. The strict MkDocs build passes. The 3.4.0 CI workflow
 adds an OpenMP lane to the previous eight jobs, for nine total; Linux GCC and
 Clang, macOS 15 arm64 with Metal, ASan/UBSan, Windows MinGW-w64 GCC and Clang,
 the CUDA 12.6 compile-and-skip container lane, and strict docs are unchanged.
+The first push run (`cc15dca`, run 41640913349) passed all nine jobs.
 The macOS job is pinned to `macos-15` because `macos-latest` now resolves to
 macOS 26 Arm64 and queued during the macOS 14 retirement migration. The 3.2.0
 macOS and Linux results are retained in the README history; its Metal build

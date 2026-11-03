@@ -27,7 +27,7 @@ typedef enum {
     FFT_GPU_NONE = 0,
     FFT_GPU_CUDA = 1,
     FFT_GPU_METAL = 2,
-    FFT_GPU_OPENCL = 3,
+    FFT_GPU_OPENCL = 3,  /* Reserved; no OpenCL backend is implemented */
     FFT_GPU_AUTO = -1  // Automatically select best available
 } fft_gpu_backend_t;
 
@@ -43,6 +43,11 @@ typedef struct fft_gpu_plan* fft_gpu_plan_t;
  * @brief Initialize GPU backend
  * @param backend GPU backend to use (or FFT_GPU_AUTO)
  * @return 0 on success, -1 on failure
+ *
+ * The selected backend is process-global. Initialization and cleanup are not
+ * thread-safe; call them once before creating plans. Plans, memory handles and
+ * buffers are independent objects but the interface has no internal locking,
+ * so do not share any of them across threads without external synchronization.
  */
 int fft_gpu_init(fft_gpu_backend_t backend);
 

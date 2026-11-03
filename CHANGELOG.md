@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-11-03
+
+3.4.0 adds the kernels and planner work that earlier releases listed as
+remaining: an AVX2 radix-4 path, an opt-in OpenMP kernel, a cache-blocked
+four-step transform, a faster split-radix layout, and thread-safe planning. The
+public API and the wisdom format are unchanged.
+
+### Added
+- An AVX2 radix-4 kernel (`radix4_avx2_fft`) with runtime dispatch. It keeps two
+  complex values per 256-bit register and falls back to scalar radix-4 below
+  4096 points and on CPUs without AVX2. The planner selects it from 4096 points
+  up; non-x86 and MSVC-style builds get a stub that reports unavailable.
+- An OpenMP radix-4 kernel (`radix4_omp_fft`) behind
+  `-DFFT_ENABLE_OPENMP=ON`. It parallelizes the butterfly loop over blocks, uses
+  one twiddle table per stage, falls back to scalar radix-4 below 524288 points
+  or with one thread, and returns `FFT_ERR_UNSUPPORTED` when the build has no
+  OpenMP.
+- A four-step FFT (`four_step_fft`) for large power-of-two lengths: N = N1*N2,
+  column FFTs, a twiddle pass, row FFTs and a tiled transpose, with radix-4
+  sub-transforms. It is a candidate in the `FFT_MEASURE` sweep, but the
+  heuristic does not select it: on the verification machines it did not beat
+  the AVX2 and OpenMP kernels consistently. The measured ratios are in the
+  performance guide.
+- Planner thresholds for the new kernels, guarded by runtime availability
+  checks. `fft_plan_algorithm_name()` reports `"Radix-4 (AVX2)"`,
+  `"Radix-4 (OpenMP)"` and `"Four-Step"`.
+- `tests/test_threads.c`, an OpenMP-only concurrency test with 17712 checks:
+  first-use hardware detection, wisdom lookup and store, export and import, and
+  independent plans from 64 threads. CTest registers it only in OpenMP builds.
+- An `openmp` CI job that builds with `-DFFT_ENABLE_OPENMP=ON -Werror`, runs the
+  test suite and the benchmark, and checks for compiler warnings.
+- Internal `radix4_fft_scratch()` and `fft_radix4_reorder_into()` entry points,
+  so the four-step and threaded kernels reuse radix-4 without extra allocations.
+
+### Changed
+- Planning state is thread-safe. Hardware detection and the wisdom cache use
+  C11 atomic spin locks, and export/import snapshot the cache under the lock.
+  Separate plans can be created and executed concurrently; a single plan is
+  still not shareable between threads.
+- `split_radix_fft()` reads its input with a stride instead of gathering even
+  and odd samples into scratch at every level, and the two combines share one
+  pass. Peak scratch drops to about 3n (pool sized 4n), and the kernel is
+  20-25% faster at 4096-32768 points.
+- `test_all` grows from 1362 checks to 1406 on an AVX2-capable x86 build and
+  1415 with OpenMP; hosts without AVX2 skip that kernel's entries.
+  `test_utils` stays at 54 checks. The test sizes now run to 1048576,
+  and the planner selection test covers the new thresholds.
+- `benchmark_all` runs the AVX2 kernel up to 1M points and includes the OpenMP
+  and four-step kernels at the sizes where the planner considers them, so the
+  published ratios come from one run.
+- Comment and header pass across the kernels: removed stale algorithm
+  descriptions, corrected the Bluestein sign convention and scratch estimate,
+  the bit-reversal coverage note, the radix-4 wrapper limits, the recursive FFT
+  memory note, and the planner's selection rationale.
+- Removed `gpu/fft_gpu_windows.c`. It was in no target and no header, and its
+  unbuilt code loaded CUDA runtime DLLs as a "GPU present" check, wrote
+  `HwSchMode` to the registry, and raised the process priority. The supported
+  Windows configuration remains CPU-only.
+- The GPU interface now states that the selected backend is process-global, that
+  init/cleanup are not thread-safe, and that `FFT_GPU_OPENCL` /
+  `FFT_HW_GPU_OPENCL` are reserved values that no backend reports. The
+  `demo_features` output no longer claims a single-threaded planner and lists
+  the v3.4.0 kernels.
+
+### Fixed
+- The radix-4 stage loop advanced with `m *= 4` after the final stage, which
+  overflows `int` on a 2^29 transform. The loop now stops before advancing past
+  `n`.
+- Wisdom export read the process-global cache without the lock, so a concurrent
+  store could be observed half-written. Export and import now take a snapshot
+  under the lock and format or parse outside it.
+- The recursive FFT demo reported O(n log n) temporary memory; the live peak is
+  about 3n complex numbers.
+
 ## [3.3.0] - 2026-11-02
 
 3.3.0 makes the CUDA backend real on Linux, closes the planner and utility
@@ -444,7 +518,8 @@ were removed in 3.0.0; see that entry for the details.*
 - Example programs
 - Basic documentation
 
-[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.4.0...HEAD
+[3.4.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.0.0...v3.1.0

@@ -4,7 +4,9 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 3.2.x   | Yes       |
+| 3.4.x   | Yes       |
+| 3.3.x   | No        |
+| 3.2.x   | No        |
 | 3.1.x   | No        |
 | 3.0.x   | No        |
 | 2.x     | No        |

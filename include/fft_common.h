@@ -104,13 +104,15 @@ static inline int log2_int(int n) {
     return log;
 }
 
-// Bit reversal function with optimization for small sizes
+/* Reverse the low log2n bits of x. For log2n <= 8, swap all 16 bits with
+ * masks and shift the padding away; beyond that, reverse one bit at a time. */
 static inline unsigned int bit_reverse(unsigned int x, int log2n) {
     if (log2n <= 0) return 0;
 
     if (log2n <= 8) {
-        /* All four swap stages must run: skipping the byte swap leaves a
-         * partial reversal and misplaces every index for log2n <= 4. */
+        /* All four stages are required: the reversal places low input bits
+         * high, and the shift would discard them if the byte swap were
+         * skipped. */
         x = ((x & 0xAAAA) >> 1) | ((x & 0x5555) << 1);
         x = ((x & 0xCCCC) >> 2) | ((x & 0x3333) << 2);
         x = ((x & 0xF0F0) >> 4) | ((x & 0x0F0F) << 4);
@@ -118,7 +120,7 @@ static inline unsigned int bit_reverse(unsigned int x, int log2n) {
         return x >> (16 - log2n);
     }
 
-    /* General case for log2n > 8 */
+    /* General case: reverse one bit at a time. */
     unsigned int r = 0;
     for (int i = 0; i < log2n; i++) {
         r = (r << 1) | (x & 1);

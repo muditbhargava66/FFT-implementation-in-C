@@ -6,11 +6,11 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
 [![GPU](https://img.shields.io/badge/GPU-CUDA%20%7C%20Metal-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-3.3.0-success)]()
+[![Release](https://img.shields.io/badge/release-3.4.0-success)]()
 
 </div>
 
-A C11 FFT library with seven FFT kernels, two DFT references, a planning API,
+A C11 FFT library with ten FFT kernels, two DFT references, a planning API,
 algorithm selection based on measured cost, and optional CUDA (Linux/WSL) and
 Metal (macOS) backends. Builds with GCC and Clang on Linux, macOS and Windows
 (MinGW-w64).
@@ -31,9 +31,9 @@ Metal (macOS) backends. Builds with GCC and Clang on Linux, macOS and Windows
 
 ## What's in the library
 
-**Algorithms:** radix-2 DIT, radix-2 DIF, radix-4, split-radix, Bluestein,
-mixed-radix, a recursive radix-2 implementation, and naive/optimized DFT
-references.
+**Algorithms:** radix-2 DIT, radix-2 DIF, radix-4, AVX2 radix-4, OpenMP radix-4,
+four-step, split-radix, Bluestein, mixed-radix, a recursive radix-2
+implementation, and naive/optimized DFT references.
 
 **Planning API:** one-shot `fft_auto()`, reusable plans for 1-D complex,
 real-to-complex, complex-to-real and 2-D transforms, a wisdom cache, and
@@ -46,7 +46,9 @@ never calls `exit()`. The failure contract and error codes are in the
 
 What it does not do:
 
-- No SIMD, threaded or fixed-point kernels.
+- No fixed-point kernels. SIMD and threading are optional: the AVX2 kernel is
+  selected automatically on supporting x86 CPUs, while the OpenMP kernel needs
+  `-DFFT_ENABLE_OPENMP=ON`.
 - No native Windows GPU backend. CUDA is supported on Linux and WSL; Windows
   builds are CPU-only because the library needs C11 `_Complex` and nvcc on
   Windows requires MSVC as its host compiler.
@@ -54,8 +56,8 @@ What it does not do:
   (`-DFFT_ENABLE_CUDA=ON`, Linux/WSL) and computes in double precision; Metal is
   opt-in (`-DFFT_ENABLE_METAL=ON`, macOS 14+) and computes in float32. Default
   builds resolve `fft_gpu_*` to CPU stubs.
-- Not thread-safe. Algorithm selection and the wisdom cache share global state,
-  so do not plan from multiple threads.
+- A single plan is not thread-safe. Planning and the wisdom cache can be used
+  from multiple threads, but create and execute separate plans per thread.
 - 2-D plans accept power-of-two row and column counts only.
 
 ## Build and test
@@ -72,9 +74,12 @@ ctest --test-dir build --output-on-failure
 ```
 
 The test binary is `build/bin/test_all`. It compares every implementation
-against a direct DFT computed independently inside the test file, across 30
-sizes from 1 to 16384. `build/bin/test_utils` covers the utility functions and
-file I/O. The benchmark suite is `build/bin/benchmark_all`.
+against a direct DFT computed independently inside the test file, across 34
+sizes from 1 to 1048576: 1406 checks on an AVX2-capable x86 host (hosts without
+AVX2 skip that kernel's entries) and 1415 with OpenMP.
+`build/bin/test_utils` adds 54 utility checks. An OpenMP build also produces
+`test_threads`, which runs 17712 concurrent planner and wisdom checks. The
+benchmark suite is `build/bin/benchmark_all`.
 
 To build with a specific compiler:
 
@@ -84,6 +89,22 @@ cmake -S . -B build -DCMAKE_C_COMPILER=clang
 
 `-march=native` is off by default; enable it with `-DFFT_NATIVE_ARCH=ON` if the
 binary only needs to run on the build machine.
+
+### OpenMP kernel
+
+The threaded radix-4 kernel is opt-in and needs a compiler with OpenMP:
+
+```bash
+cmake -S . -B build-omp -DFFT_ENABLE_OPENMP=ON
+cmake --build build-omp
+ctest --test-dir build-omp --output-on-failure
+```
+
+The kernel parallelizes the butterfly loop over blocks, builds one twiddle table
+per stage, and falls back to scalar radix-4 below 524288 points or when only one
+thread is available. The planner selects it from 524288 points when it is
+compiled in and faster than AVX2. `test_threads` is registered as a CTest entry
+in this build only.
 
 ### Metal backend
 
@@ -142,6 +163,14 @@ with that explanation and points at WSL.
 
 | Platform | Compiler | Result |
 | --- | --- | --- |
+| Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.4.0: 1406/1406 + 54/54 checks, 0 warnings with `-Werror`; CTest 2/2; benchmarks 66/0/54; demos 9/9 |
+| Windows 11 x86_64, `-DFFT_ENABLE_OPENMP=ON` | MinGW-w64 GCC 13.2.0 | 3.4.0: 1415/1415 + 17712 threaded checks, 0 warnings with `-Werror`; CTest 3/3; benchmarks 68/0/52 |
+| Ubuntu 22.04 WSL, GTX 1050 (`FFT_ENABLE_CUDA=ON`) | GCC 11.4.0 + CUDA 11.5.119 | 3.4.0: 1406/1406 + 54/54 + 74/74 GPU checks, 0 warnings; CTest 3/3; benchmarks 66/0/54 |
+| Ubuntu 22.04 WSL, `FFT_ENABLE_OPENMP=ON` | GCC 11.4.0 | 3.4.0: 1415/1415 + 17712 threaded checks, 0 warnings with `-Werror`; CTest 3/3 |
+| Ubuntu 22.04 WSL, ASan + UBSan | GCC 11.4.0 | 3.4.0: 1406/1406 + 54/54 checks, no sanitizer reports; CTest 2/2 |
+| macOS 15 arm64 (CI, `macos-15`) | Apple Clang | 3.4.0 CI: CTest 2/2 plus the Metal GPU test, 0 warnings; demos 9/9 |
+| Windows (CI, windows-latest) | MinGW-w64 GCC 16.2.0 | 3.4.0 CI: 2/2 tests, 0 warnings; benchmarks 66/0/54; demos 9/9 |
+| Windows (CI, windows-latest) | MinGW-w64 Clang 23.1.4 | 3.4.0 CI: 2/2 tests, 0 warnings; benchmarks 66/0/54; demos 9/9 |
 | Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.3.0: 1362/1362 + 54/54 checks, 0 warnings; CTest 2/2; benchmarks 52/0/2; demos 9/9 |
 | Ubuntu 22.04 WSL, GTX 1050 (`FFT_ENABLE_CUDA=ON`) | GCC 11.4.0 + CUDA 11.5.119 | 3.3.0: 1362/1362 + 54/54 + 74/74 GPU checks, 0 warnings; CTest 3/3; benchmarks 52/0/2; demos 9/9 |
 | macOS 15 arm64 (CI, `macos-15`) | Apple Clang | 3.3.0 CI: 2/2 CPU tests, 0 warnings; benchmarks 52/0/2; demos 9/9; Metal test passed |
@@ -158,24 +187,21 @@ with that explanation and points at WSL.
 | Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 timing machine: 1361/1361 checks; benchmarks 52/0/2 |
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
-The 3.3.0 rows were run locally on the release branch: Windows 11 with
-MinGW-w64 GCC 13.2.0, and Ubuntu 22.04 under WSL with CUDA 11.5.119 on a
-GTX 1050. The older rows below are retained for history: the 3.2.0 runs on
-Ubuntu 24.04 in a container on arm64, and on macOS with an Apple M1 Pro. The
-Metal row uses the same M1 Pro with `-DFFT_ENABLE_METAL=ON` and `-Werror` for
-both C and Objective-C. The Windows x86_64 cross-build row proves the sources
-compile and link, not that the binaries run. The 3.2.0 CI rows are retained for
-history. The 3.3.0 CI run on the release branch passed all eight jobs: Linux GCC
-and Clang, macOS 15 arm64 (including the Metal build and test), ASan/UBSan,
-Windows MinGW-w64 GCC and Clang, the CUDA 12.6 compile-and-skip container lane,
-and strict docs. The macOS job is pinned to `macos-15` because `macos-latest`
-now resolves to macOS 26 Arm64 and queued during the macOS 14 retirement
-migration. CPU performance figures below are from the Windows 3.0.0 machine; the
-CUDA numbers in `docs/performance.md` come from the GTX 1050. They are not a
-cross-platform comparison. Windows application control on the verification
-machine blocked three of the optimized demo binaries by hash, so the nine-demo
-sweep was run from a Release build with `-g` added; the tests and benchmarks
-ran from the plain Release build.
+The 3.4.0 rows were run on the release branch: Windows 11 with MinGW-w64 GCC
+13.2.0 (default, OpenMP and `-Werror` builds) and Ubuntu 22.04 under WSL with
+GCC 11.4.0 (default, OpenMP `-Werror`, ASan/UBSan, and CUDA 11.5.119 on the GTX
+1050). The 3.3.0 and older rows are retained for history. The Windows x86_64
+cross-build row proves the sources compile and link, not that the binaries run.
+The 3.4.0 CI workflow keeps the eight 3.3.0 lanes and adds an OpenMP lane that
+builds with `-Werror` and runs the generated `test_threads`, for nine jobs
+total. The first push run (`cc15dca`, run 41640913349) passed all nine jobs.
+The macOS job is pinned to `macos-15` because `macos-latest` now resolves
+to macOS 26 Arm64 and queued during the macOS 14 retirement migration. CPU
+performance figures in `docs/performance.md` come from the WSL 3.4.0 build; the
+CUDA numbers come from the GTX 1050. They are not a cross-platform comparison.
+Windows application control on the verification machine blocked three of the
+optimized demo binaries by hash in the 3.3.0 run; all nine demos ran from the
+3.4.0 Release build.
 
 ## Usage
 
@@ -274,13 +300,14 @@ fails later.
 ## Performance
 
 The [performance guide](docs/performance.md) has the measured ratios, the
-harness and the noise floor. In short, radix-4 beats radix-2 DIT from n=512 on
-the measured machine, radix-2 DIF matches DIT, and split-radix is 1.6-2.9x
-slower in wall time despite the lowest multiplication count. For
-non-power-of-two lengths Bluestein beat mixed-radix at every size tested, by
-2.1x at 360 and 241x at the prime 1021. The numbers come from a Windows 11
-machine running the 3.0.0 kernels; later releases do not change the kernels, so
-they still describe this code.
+harness and the noise floor. On the 3.4.0 timing host, AVX2 radix-4 is 1.3-4x
+faster than radix-2 DIT from 4096 points up, OpenMP radix-4 adds about 24% at
+524288 points, and split-radix now measures 1.1-1.5x radix-2 DIT after the
+strided-input rewrite. The four-step kernel was 20-40% slower than AVX2 at
+1M-4M, so the planner leaves it to `FFT_MEASURE`. For non-power-of-two lengths
+Bluestein beat mixed-radix at every size tested, by 2.1x at 360 and 241x at the
+prime 1021; those two kernels are unchanged since 3.0, so the original ratios
+still apply.
 
 The Metal backend has a different profile. Each one-shot MPSGraph transform
 includes buffer setup and a blocking read-back, so on an M1 Pro
@@ -316,7 +343,7 @@ algorithms/     core kernels, DFT references, planner (core/, dft/, auto/)
 utils/          windows, helpers, GPU stubs
 applications/   runnable demos
 benchmarks/     benchmark_all and gpu_benchmark
-tests/          test_all, test_utils, test_gpu_cuda, test_gpu_metal
+tests/          test_all, test_utils, test_threads, test_gpu_cuda, test_gpu_metal
 gpu/            CUDA/cuFFT sources and the opt-in MPSGraph Metal backend
 docs/           MkDocs site
 ```
@@ -356,6 +383,13 @@ arguments, and the chirp generator integrates the sweep phase correctly. No
 kernel, planner or wisdom-format change; 3.1 wisdom files load unchanged. The
 public `CHECK_POWER_OF_TWO` macro is removed because it called `exit()`; use
 `is_power_of_two()` or `FFT_REQUIRE_POW2` instead.
+
+3.4 adds the AVX2, OpenMP and four-step kernels and makes planning thread-safe.
+No public function signature or wisdom entry changed; wisdom files from 3.x load
+unchanged. The OpenMP kernel is compiled only with `-DFFT_ENABLE_OPENMP=ON`, and
+the AVX2 kernel is dispatched at runtime without `-march=native`. Four-step is a
+candidate for `FFT_MEASURE` only; the size heuristic prefers AVX2/OpenMP because
+four-step lost on the verification hosts.
 
 ## License
 

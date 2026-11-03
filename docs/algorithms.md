@@ -6,8 +6,11 @@
 | --- | --- | --- | --- |
 | Radix-2 DIT | O(N log N) | power of 2 | in-place, no scratch |
 | Radix-2 DIF | O(N log N) | power of 2 | same cost as DIT here |
-| Radix-4 | O(N log N) | power of 2 | faster from N=512 up |
-| Split-Radix | O(N log N) | power of 2 | fewest multiplications, slowest of the three in wall time |
+| Radix-4 | O(N log N) | power of 2 | faster from N=256 up |
+| Radix-4 AVX2 | O(N log N) | power of 2 | two complex values per AVX2 register; selected from N=4096 |
+| Radix-4 OpenMP | O(N log N) | power of 2 | opt-in; parallel butterflies; selected from N=524288 |
+| Four-Step | O(N log N) | power of 2 | cache-blocked; selected from N=1048576 |
+| Split-Radix | O(N log N) | power of 2 | fewest multiplications, still slower in wall time |
 | Bluestein | O(N log N) | any | about 9N complex scratch |
 | Mixed-Radix | O(N log N) | any | recursive Cooley-Tukey for composite lengths; direct DFT at a prime |
 | Recursive | O(N log N) | power of 2 | clear structure, not the fastest |
@@ -48,20 +51,62 @@ stage when `log2(n)` is odd.
 $$X[k] = \sum_{r=0}^{3} W_N^{rk} \sum_{n=0}^{N/4-1} x[4n+r]\,W_{N/4}^{nk}.$$
 
 Twiddles advance multiplicatively per stage. The digit-reversal permutation
-needs an O(n) buffer, which is why radix-4 loses to radix-2 below 512 despite
-doing fewer multiplications per stage.
+needs an O(n) buffer, which is why radix-4 loses to radix-2 below 256 points
+despite doing fewer multiplications per stage.
 
 ```c
 radix4_fft(signal, n, FFT_FORWARD);
+```
+
+## Radix-4 AVX2
+
+The same decomposition with the stage arithmetic vectorized. Two complex values
+fit in one 256-bit register, and the twiddle and butterfly arithmetic use
+`__m256d` throughout. Dispatch is runtime-only: `radix4_avx2_available()` calls
+`__builtin_cpu_supports("avx2")`, and the planner selects the kernel from 4096
+points up when it returns true. The scalar kernel remains the fallback on
+non-x86 targets and on builds without GCC/Clang vector support; those builds get
+a stub that reports unavailable.
+
+```c
+radix4_avx2_fft(signal, n, FFT_FORWARD);
+```
+
+## Radix-4 OpenMP
+
+An opt-in threaded version of the radix-4 stage, built with
+`-DFFT_ENABLE_OPENMP=ON`. The butterfly loop is parallelized over blocks and
+indices, and one twiddle table per stage is shared by the threads. Below 524288
+points, or with a single thread, the kernel calls scalar radix-4 instead. When
+the build has no OpenMP, the entry point returns `FFT_ERR_UNSUPPORTED` and
+`radix4_omp_available()` returns 0. The planner selects it from 524288 points
+when it is available.
+
+```c
+radix4_omp_fft(signal, n, FFT_FORWARD);
+```
+
+## Four-Step
+
+For large power-of-two lengths, `N = N1*N2` with the two factors near
+`sqrt(N)`. The input is treated as an N1-by-N2 row-major matrix: columns are
+gathered into cache-sized scratch and transformed, the result is multiplied by
+`W_N^(k1*c)`, rows are transformed, and a 16x16 tiled transpose returns natural
+order. Sub-transforms use the radix-4 kernel and share one scratch buffer. The
+planner selects this kernel from 1M points.
+
+```c
+four_step_fft(signal, n, FFT_FORWARD);
 ```
 
 ## Split-radix
 
 Combines radix-2 and radix-4 decompositions: one `n/2` subtransform and two
 `n/4` subtransforms per level. It has the lowest multiplication count of the
-power-of-two kernels, but this implementation moves about 2.5n elements per
-level and measures 1.6-2.9x slower than radix-2 DIT. It allocates a scratch
-pool; it does not run in place.
+power-of-two kernels. The recursion reads its input with a stride instead of
+gathering even and odd samples into scratch at every level, and the two combine
+passes share one loop, so peak scratch is about 3n (the pool is sized 4n).
+Wall-time ratios are in the [Performance Guide](performance.md).
 
 ```c
 split_radix_fft(signal, n, FFT_FORWARD);
@@ -103,14 +148,25 @@ constraint; pass `FFT_CONSERVE_MEMORY` to the planner.
 
 The planner uses these rules by default (`FFT_ESTIMATE`):
 
-- Power-of-two lengths below 512: radix-2 DIT.
-- Power-of-two lengths from 512 up: radix-4.
+- Power-of-two lengths up to 256: radix-2 DIT.
+- Power-of-two lengths from 257 to 4095: radix-4.
+- From 4096 to 524287: AVX2 radix-4 when the CPU supports AVX2, else radix-4.
+- From 524288 up: radix-4 OpenMP when built with OpenMP and more than one
+  thread is available, else AVX2 radix-4 when available, else radix-4.
+- `FFT_CONSERVE_MEMORY`: radix-2 DIT for every power-of-two length.
 - Non-power-of-two lengths: Bluestein, unless `FFT_CONSERVE_MEMORY` is set and
   the length is highly composite (at least three factors drawn from 2, 3, 5 and
   7), in which case mixed-radix.
 
-`FFT_MEASURE` times the candidates instead of using the rules, then caches the
-result. It is worth using when a program plans once and executes many times.
+The four-step kernel is not in the heuristic. It is a candidate for
+`FFT_MEASURE`, which picks it only when it actually wins; on the verification
+machines it was 20-40% slower than AVX2/OpenMP at 1M-4M points (see the
+[Performance Guide](performance.md)).
+
+The fixed thresholds sit inside the measured crossovers on the verification
+machine; a different CPU can move them. `FFT_MEASURE` times the candidates
+instead of using the rules, then caches the result. It is worth using when a
+program plans once and executes many times.
 
 `FFT_CONSERVE_MEMORY` takes precedence over measurement and selects in-place or
 low-scratch kernels.
@@ -118,8 +174,11 @@ low-scratch kernels.
 ## Memory and stability
 
 - Radix-2 DIT and DIF are in place.
-- Radix-4 allocates an O(n) digit-reversal buffer.
-- Split-radix allocates a scratch pool.
+- Radix-4 allocates an O(n) digit-reversal buffer; the AVX2 and OpenMP versions
+  use the same reorder.
+- Four-step allocates n elements for the reordered output plus about
+  `2*sqrt(n)` for the column and sub-transform scratch.
+- Split-radix allocates a 4n-element pool and peaks near 3n live.
 - Bluestein allocates roughly 9n complex numbers.
 - Mixed-radix allocates O(n) scratch for its recursion.
 
@@ -128,5 +187,5 @@ independent direct DFT in `tests/test_all.c`. Bluestein accumulates somewhat
 more round-off than a single radix kernel because it runs three transforms of
 about 4n, which the test tolerance accounts for.
 
-There is no fixed-point path. There is no SIMD or threaded kernel; the
-`docs/optimizations.md` page lists what would be required to add one.
+There is no fixed-point path. SIMD and threading exist as the AVX2 and OpenMP
+kernels above; both have their own availability checks and test entries.

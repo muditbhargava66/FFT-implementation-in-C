@@ -1,6 +1,6 @@
 # Quick Start
 
-This is a short tour of the library for version 3.3.0. The full setup notes are
+This is a short tour of the library for version 3.4.0. The full setup notes are
 in [Getting Started](getting-started.md).
 
 ## Build
@@ -11,7 +11,7 @@ cd FFT-implementation-in-C
 
 cmake -S . -B build
 cmake --build build
-ctest --test-dir build   # test_all 1362/1362, test_utils 54/54
+ctest --test-dir build   # test_all 1406/1406 (AVX2 host), test_utils 54/54
 ```
 
 ## A first FFT

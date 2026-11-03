@@ -1,47 +1,19 @@
 #include "../../include/fft_common.h"
 #include "../../include/fft_algorithms.h"
+#include "radix4_internal.h"
 
-/**
- * @file radix4.c
- * @brief Radix-4 FFT Implementation
- * 
- * @details
- * The Radix-4 FFT algorithm processes 4 points at a time instead of 2,
- * reducing the number of stages. log2(n) may be odd, in which case one
- * leading radix-2 stage handles the leftover factor of 2, so any power-of-two
- * length is accepted (not only powers of four).
- * 
- * Mathematical Foundation:
- * The DFT is decomposed into 4 interleaved subsequences:
- *   X[k] = Σ(r=0 to 3) W_N^(rk) * DFT_{N/4}[x[4n+r]]
- * 
- * The radix-4 butterfly combines 4 (pre-twiddled) inputs using:
- *   [A]   [1  1  1  1] [a]
- *   [B] = [1 -j -1  j] [b]
- *   [C]   [1 -1  1 -1] [c]
- *   [D]   [1  j -1 -j] [d]
- * 
- * @author FFT Study Repository
- * @date 2024
- * 
- * Time Complexity: O(n log n). The radix-4 butterfly itself needs 25% fewer
- * twiddle multiplications than radix-2, but this implementation still recomputes
- * the digit-reversal permutation with an O(n) auxiliary buffer per call, so the
- * realised advantage over radix-2 is smaller than the butterfly arithmetic alone
- * implies.
- * Space Complexity: O(n) auxiliary (digit-reversal scratch), not in-place.
+/*
+ * Radix-4 decimation-in-time. Base-4 digit reversal, one radix-2 stage when
+ * log2(n) is odd, then radix-4 stages, so any power-of-two length works (not
+ * only powers of four). A radix-4 stage needs three twiddle multiplies per
+ * four outputs where two radix-2 stages need four; the trade is an n-element
+ * reorder buffer per call.
  */
 
-/**
- * @brief Radix-4 butterfly operation (reference illustration only)
- * 
- * @details
- * This helper exists to show the 4-point DFT matrix and its output twiddles.
- * It is NOT used by radix4_fft(), which pre-multiplies its inputs rather than
- * post-multiplying its outputs.
- * 
- * @param a,b,c,d Pointers to the four complex values
- * @param w1,w2,w3 Twiddle factors W^k, W^2k, W^3k
+/*
+ * Reference illustration of the radix-4 butterfly for the demo program. Not
+ * used by radix4_fft(), which pre-multiplies its inputs instead of applying
+ * twiddles to the outputs.
  */
 #ifndef LIB_BUILD
 /* Only the demonstration main() calls this; compiling it into the library
@@ -65,56 +37,34 @@ static inline void radix4_butterfly_demo(complex_t* a, complex_t* b, complex_t* 
 }
 #endif /* LIB_BUILD */
 
-/**
- * @brief Main Radix-4 FFT implementation
- * 
- * @details
- * Implements the complete radix-4 FFT algorithm with the following steps:
- * 1. Validate input size is power of 2
- * 2. Perform bit reversal permutation
- * 3. Execute stages of radix-4 butterflies where possible
- * 4. Handle remaining radix-2 stage if needed
- * 5. Scale for inverse transform
- * 
- * @param x Input/output array of complex numbers
- * @param n Array length (must be power of 2)
- * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
+/*
+ * A base-4 digit reversal needs a second buffer: the source and destination
+ * indices overlap, and in-place digit reversal is not a permutation cycle that
+ * a single pass can follow safely. The cost is one n-element allocation and
+ * two passes over n elements per transform.
  */
-fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
-    if (!x) return FFT_ERR_NULL;
-    if (!is_power_of_two(n)) return FFT_ERR_SIZE;
-
-    if (n <= 1) return FFT_OK;
+int fft_radix4_reorder_into(complex_t* x, int n, complex_t* temp) {
+    if (!x || n <= 1) return 0;
+    if (!temp) return -1;
 
     int log2n = log2_int(n);
-    
-    // Custom permutation for Radix-4 (and Mixed Radix 2x4x4...)
-    // We need to reverse the digits.
-    // If N = 4^k, digits are base 4.
-    // If N = 2*4^k, first digit is base 2, others base 4.
-    
     int is_power_of_4 = (log2n % 2 == 0);
-    
-    // We'll use a temporary array for the permutation to avoid complex in-place logic
-    // (In-place digit reversal is hard, O(N) auxiliary space is acceptable here)
-    complex_t* temp = (complex_t*)malloc((size_t)n * sizeof(complex_t));
-    if (!temp) return FFT_ERR_ALLOC;
-    
+
     for (int i = 0; i < n; i++) {
         int weight = n;
         int temp_i = i;
         int accumulated_rev = 0;
-        
-        // If odd power of 2, first factor is 2
+
+        /* For N = 2 * 4^k the leading digit is base 2; every later digit is
+         * base 4. */
         if (!is_power_of_4) {
-             int radix = 2;
-             weight /= radix;
-             int digit = temp_i % radix;
-             temp_i /= radix;
-             accumulated_rev += digit * weight;
+            int radix = 2;
+            weight /= radix;
+            int digit = temp_i % radix;
+            temp_i /= radix;
+            accumulated_rev += digit * weight;
         }
-        
-        // Remaining factors are 4
+
         while (weight > 1) {
             int radix = 4;
             weight /= radix;
@@ -122,23 +72,44 @@ fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
             temp_i /= radix;
             accumulated_rev += digit * weight;
         }
-        
+
         temp[i] = x[accumulated_rev];
     }
-    
-    // Copy back
-    for (int i = 0; i < n; i++) {
-        x[i] = temp[i];
-    }
+
+    memcpy(x, temp, (size_t)n * sizeof(complex_t));
+    return 0;
+}
+
+int fft_radix4_reorder(complex_t* x, int n) {
+    if (!x || n <= 1) return 0;
+
+    complex_t* temp = (complex_t*)malloc((size_t)n * sizeof(complex_t));
+    if (!temp) return -1;
+
+    int rc = fft_radix4_reorder_into(x, n, temp);
     free(temp);
-    
-    // Determine start length for Radix-4 stages
+    return rc;
+}
+
+/*
+ * Radix-4 DIT: base-4 digit reversal, one radix-2 stage when log2(n) is odd,
+ * then radix-4 stages. The inverse scale is applied once at the end.
+ */
+static fft_error_t radix4_fft_core(complex_t* x, int n, fft_direction dir,
+                                   complex_t* temp) {
+    int log2n = log2_int(n);
+    int is_power_of_4 = (log2n % 2 == 0);
+
+    if (fft_radix4_reorder_into(x, n, temp) != 0)
+        return FFT_ERR_ALLOC;
+
+    /* log2(n) odd leaves one factor of 2. A length-2 DFT is just sum and
+     * difference, with unity twiddles, so one pass over adjacent pairs
+     * handles it. */
     int start_length = 4;
     
-    // If not power of 4 (odd power of 2), perform one radix-2 stage first
     if (!is_power_of_4) {
         int m = 2;
-        // Twiddle for size 2 is -1 (for forward), but w=1 always for first element
         
         for (int k = 0; k < n; k += m) {
             complex_t t = x[k + 1];
@@ -146,13 +117,13 @@ fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
             x[k] = u + t;
             x[k + 1] = u - t;
         }
-        // After Radix-2 stage, we have DFTs of size 2.
-        // Next stage should combine 4 DFTs of size 2 -> size 8.
+        /* Combine four DFTs of size 2 into size 8 at the next stage. */
         start_length = 8;
     }
     
-    // Remaining stages are Radix-4
-    for (int m = start_length; m <= n; m *= 4) {
+    /* Remaining stages are radix-4. The loop advances by hand so that the
+     * final m *= 4 on a 2^29 transform cannot overflow int. */
+    for (int m = start_length; m <= n;) {
         int m4 = m / 4;          /* Quarter of current DFT size */
         int m2 = 2 * m4;         /* Half of current DFT size */
         int m3 = 3 * m4;         /* Three-quarters */
@@ -166,13 +137,14 @@ fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
         for (int k = 0; k < n; k += m) {
             complex_t w1 = 1.0, w2 = 1.0, w3 = 1.0;
             for (int j = 0; j < m4; j++) {
-                // Indices
+                /* Upper three branches carry the twiddle for this j; the
+                 * combine below is the 4-point DFT with t3 rotated by -j
+                 * (forward) or +j (inverse). */
                 int i0 = k + j;
                 int i1 = i0 + m4;
                 int i2 = i0 + m2;
                 int i3 = i0 + m3;
                 
-                // Read inputs, applying twiddles to the upper three branches
                 complex_t x0 = x[i0];
                 complex_t x1 = x[i1] * w1;
                 complex_t x2 = x[i2] * w2;
@@ -199,10 +171,12 @@ fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
                 w3 *= s3;
             }
         }
+
+        if (m == n) break;
+        m *= 4;
     }
     
-    // Scale for inverse transform
-    if (dir == FFT_INVERSE) {
+    /* Scale for inverse transform. */    if (dir == FFT_INVERSE) {
         double scale = 1.0 / n;
         for (int i = 0; i < n; i++) {
             x[i] *= scale;
@@ -211,20 +185,33 @@ fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
     return FFT_OK;
 }
 
-/**
- * @brief Compute forward FFT using Radix-4
- * @param x Input/output array
- * @param n Array length (should be power of 4 for best performance)
- */
+fft_error_t radix4_fft_scratch(complex_t* x, int n, fft_direction dir,
+                               complex_t* temp) {
+    if (!x || !temp) return FFT_ERR_NULL;
+    if (!is_power_of_two(n)) return FFT_ERR_SIZE;
+    if (n <= 1) return FFT_OK;
+    return radix4_fft_core(x, n, dir, temp);
+}
+
+fft_error_t radix4_fft(complex_t* x, int n, fft_direction dir) {
+    if (!x) return FFT_ERR_NULL;
+    if (!is_power_of_two(n)) return FFT_ERR_SIZE;
+    if (n <= 1) return FFT_OK;
+
+    complex_t* temp = (complex_t*)malloc((size_t)n * sizeof(complex_t));
+    if (!temp) return FFT_ERR_ALLOC;
+
+    fft_error_t err = radix4_fft_core(x, n, dir, temp);
+    free(temp);
+    return err;
+}
+
+/* Convenience wrappers. Any power-of-two length is valid; powers of four skip
+ * the extra radix-2 stage. */
 fft_error_t fft_radix4(complex_t* x, int n) {
     return radix4_fft(x, n, FFT_FORWARD);
 }
 
-/**
- * @brief Compute inverse FFT using Radix-4
- * @param x Input/output array
- * @param n Array length
- */
 fft_error_t ifft_radix4(complex_t* x, int n) {
     return radix4_fft(x, n, FFT_INVERSE);
 }

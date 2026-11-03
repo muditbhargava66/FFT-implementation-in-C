@@ -103,7 +103,8 @@ int fft_gpu_init(fft_gpu_backend_t backend) {
 #ifdef FFT_GPU_METAL_ENABLED
     result = fft_gpu_init_metal();
 #else
-    fprintf(stderr, "Metal support only available on macOS\n");
+    fprintf(stderr, "Metal backend not compiled in; configure with "
+                    "-DFFT_ENABLE_METAL=ON on macOS 14+\n");
 #endif
     break;
 
@@ -428,13 +429,10 @@ int fft_gpu_dft_1d_batch(complex_t *in, complex_t *out, int n, int batch,
     break;
   }
 
-  // Fallback: Simple implementation using single FFTs
-  for (int i = 0; i < batch; i++) {
-    int result = fft_gpu_dft_1d(in + i * n, out + i * n, n, direction);
-    if (result != 0)
-      return result;
-  }
-  return 0;
+  /* An enabled backend implements the batch call above. With no backend there
+   * is nothing to fall back to, so report failure instead of looping over
+   * single transforms that also fail. */
+  return -1;
 }
 
 // 2D FFT plan

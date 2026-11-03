@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(FFT_Implementation_C VERSION 3.3.0 LANGUAGES C)
+project(FFT_Implementation_C VERSION 3.4.0 LANGUAGES C)
 
 # Set C standard
 set(CMAKE_C_STANDARD 11)
@@ -30,6 +30,7 @@ include_directories(include)
 # and MinGW-w64 GCC 13.2.0 miscompiles 32-byte AVX stack stores at some
 # alignment phases, which crashed realtime_analyzer intermittently.
 option(FFT_NATIVE_ARCH "Tune for the build host CPU (-march=native); non-portable" OFF)
+option(FFT_ENABLE_OPENMP "Build the threaded radix-4 kernel (OpenMP)" OFF)
 
 # Compiler options. Language-scoped so nvcc does not receive GCC-only flags
 # such as -march=native; CUDA gets its warnings through -Xcompiler.
@@ -165,6 +166,12 @@ endif()
 add_library(fft_lib_c STATIC ${FFT_C_SOURCES})
 target_compile_definitions(fft_lib_c PRIVATE LIB_BUILD)
 
+if(FFT_ENABLE_OPENMP)
+    find_package(OpenMP REQUIRED COMPONENTS C)
+    target_link_libraries(fft_lib_c PUBLIC OpenMP::OpenMP_C)
+    message(STATUS "OpenMP radix-4 kernel enabled")
+endif()
+
 if(FFT_CUDA_ENABLED)
     target_compile_definitions(fft_lib_c PUBLIC FFT_GPU_CUDA_ENABLED)
     target_link_libraries(fft_lib_c PUBLIC CUDA::cudart CUDA::cufft)
@@ -207,6 +214,13 @@ add_test(NAME test_all COMMAND test_all)
 add_executable(test_utils tests/test_utils.c)
 target_link_libraries(test_utils PRIVATE fft_lib)
 add_test(NAME test_utils COMMAND test_utils)
+
+if(FFT_ENABLE_OPENMP)
+    add_executable(test_threads tests/test_threads.c)
+    target_link_libraries(test_threads PRIVATE fft_lib)
+    add_test(NAME test_threads COMMAND test_threads)
+    set_tests_properties(test_threads PROPERTIES SKIP_RETURN_CODE 77)
+endif()
 
 if(FFT_METAL_ENABLED)
     add_executable(test_gpu_metal tests/test_gpu_metal.c)

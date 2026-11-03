@@ -20,6 +20,7 @@ typedef struct {
     int requires_power_of_2;
     int min_size;
     int max_size;
+    int (*is_available)(void);
 } fft_impl_t;
 
 // Benchmark result
@@ -37,15 +38,21 @@ typedef struct {
 // List of implementations to benchmark. The prototypes live in
 // fft_algorithms.h; do not redeclare them here.
 fft_impl_t implementations[] = {
-    {"Radix-2 DIT", radix2_dit_fft, radix2_dit_fft, 1, 2, 65536},
-    {"Radix-2 DIF", radix2_dif_fft, radix2_dif_fft, 1, 2, 65536},
-    {"Radix-4", radix4_fft, radix4_fft, 1, 4, 65536},
-    {"Split-Radix", split_radix_fft, split_radix_fft, 1, 2, 65536},
-    {"Bluestein", bluestein_fft, bluestein_fft, 0, 2, 65536},
-    {"Mixed-Radix", mixed_radix_fft, mixed_radix_fft, 0, 2, 65536},
-    {"Recursive", fft_recursive, fft_recursive, 1, 2, 65536},
-    {"Naive DFT", naive_dft, naive_dft, 0, 2, 4096},
-    {"Optimized DFT", optimized_dft, optimized_dft, 0, 2, 4096}
+    {"Radix-2 DIT", radix2_dit_fft, radix2_dit_fft, 1, 2, 65536, NULL},
+    {"Radix-2 DIF", radix2_dif_fft, radix2_dif_fft, 1, 2, 65536, NULL},
+    {"Radix-4", radix4_fft, radix4_fft, 1, 4, 65536, NULL},
+    {"Radix-4 OMP", radix4_omp_fft, radix4_omp_fft, 1, 524288, 1048576,
+     radix4_omp_available},
+    {"Radix-4 AVX2", radix4_avx2_fft, radix4_avx2_fft, 1, 4096, 1048576,
+     radix4_avx2_available},
+    {"Four-Step", four_step_fft, four_step_fft, 1, 1048576, 4194304,
+     four_step_available},
+    {"Split-Radix", split_radix_fft, split_radix_fft, 1, 2, 65536, NULL},
+    {"Bluestein", bluestein_fft, bluestein_fft, 0, 2, 65536, NULL},
+    {"Mixed-Radix", mixed_radix_fft, mixed_radix_fft, 0, 2, 65536, NULL},
+    {"Recursive", fft_recursive, fft_recursive, 1, 2, 65536, NULL},
+    {"Naive DFT", naive_dft, naive_dft, 0, 2, 4096, NULL},
+    {"Optimized DFT", optimized_dft, optimized_dft, 0, 2, 4096, NULL}
 };
 
 int num_implementations = sizeof(implementations) / sizeof(implementations[0]);
@@ -154,9 +161,10 @@ static benchmark_result_t run_single_benchmark(fft_impl_t* impl, complex_t* inpu
     result.passed = 1;
     result.bins_checked = num_bins;
     
-    // Skip if size not supported
+    // Skip if size or optional kernel is not supported
     if ((impl->requires_power_of_2 && !is_power_of_two(n)) ||
-        n < impl->min_size || n > impl->max_size) {
+        n < impl->min_size || n > impl->max_size ||
+        (impl->is_available && !impl->is_available())) {
         result.forward_time_ms = -1;
         result.inverse_time_ms = -1;
         result.max_error = -1;
@@ -343,7 +351,8 @@ int main() {
     printf("==================================\n");
     
     // Test parameters
-    int test_sizes[] = {16, 64, 256, 1024, 4096, 16384};
+    int test_sizes[] = {16,    64,    256,   1024,   4096,
+                        16384, 32768, 131072, 524288, 1048576};
     int num_sizes = sizeof(test_sizes) / sizeof(test_sizes[0]);
     const char* test_signal = "impulse";  // Use impulse instead of random for better stability
     

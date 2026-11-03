@@ -184,7 +184,7 @@ void demo_simplified_api(void) {
     printf("\nModern API:\n");
     printf("  fft_auto(signal, signal, n, -1);\n");
     printf("  // Automatic algorithm selection\n");
-    printf("  // Selected by the planner from the measured cost ratios\n");
+    printf("  // Chosen by the size/flag heuristic; FFT_MEASURE adds timing\n");
     printf("  // GPU only with FFT_PREFER_GPU when a GPU build is available\n");
     
     // Demonstrate usage
@@ -258,7 +258,8 @@ int main() {
     // Summary
     printf("\n\n=== What this build provides ===\n");
     printf("1. Algorithm selection by length, flags and optional measurement\n");
-    printf("2. CPU-only by default; FFT_ENABLE_METAL adds an MPSGraph backend\n");
+    printf("2. CPU-only by default; FFT_ENABLE_CUDA (Linux/WSL) and "
+           "FFT_ENABLE_METAL (macOS 14+) add GPU backends\n");
     printf("3. One-shot API: fft_auto()\n");
     printf("4. Linux, macOS and Windows (MinGW-w64) builds\n");
     printf("5. Timing-based selection with FFT_MEASURE\n");
@@ -266,7 +267,10 @@ int main() {
     printf("7. Real-to-complex and complex-to-real transforms\n");
     printf("8. 2-D planning with row-column decomposition\n");
     printf("9. Wisdom cache for persistent algorithm selection\n");
-    printf("10. Single-threaded planner; see the README's thread-safety note\n");
+    printf("10. AVX2 radix-4 from 4096 points, OpenMP from 524288 "
+           "(opt-in build), four-step via FFT_MEASURE\n");
+    printf("11. Thread-safe planning and wisdom cache; a single plan is not "
+           "shareable between threads\n");
     
     printf("\nFor more information, see the documentation at:\n");
     printf("https://fft-implementation-in-c.readthedocs.io/\n");

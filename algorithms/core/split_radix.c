@@ -28,65 +28,64 @@
  */
 
 /*
- * sp is a bump cursor into a caller-owned pool; children allocate above this
- * node's buffers and roll the cursor back when they return, so peak usage is
- * 2.5n + 2.5(n/2) + ... < 5n. Without the pool this kernel issued ~n mallocs
- * per transform, and the allocator - not the arithmetic - was the whole cost.
+ * sp is a bump cursor into a caller-owned pool. A node writes its three child
+ * transforms above its own buffers, and sequential children reuse the region:
+ * the input copy is n, the top node's children are n, and the deepest chain
+ * adds n/2 + n/4 + ... = n, for a peak near 3n. The pool is sized to 4n.
+ *
+ * The recursion reads its input with a stride instead of gathering the even
+ * and odd samples into contiguous scratch first. That removes a full copy of
+ * roughly 2n elements at every level; the cost is that early levels read with
+ * stride 2 and 4, which the cache handles because the touched lines are close
+ * together. The two combine steps also share one pass, so E[] is never
+ * materialised.
  */
-static int sr_recursion(complex_t* out, const complex_t* in, int n,
-                        fft_direction dir, complex_t** sp) {
+static int sr_recursion(complex_t* out, const complex_t* in, int stride, int n,
+                        fft_direction dir, complex_t** sp,
+                        const complex_t* pool_end) {
     if (n == 1) {
         out[0] = in[0];
         return 0;
     }
     if (n == 2) {
-        out[0] = in[0] + in[1];
-        out[1] = in[0] - in[1];
+        const complex_t a = in[0];
+        const complex_t b = in[stride];
+        out[0] = a + b;
+        out[1] = a - b;
         return 0;
     }
 
     int h = n / 2, q = n / 4;
 
-    /* Gather inputs and their transform outputs in separate regions: sr_recursion
-     * writes its out argument while later stages still read in, so they must not
-     * overlap. */
     complex_t* base = *sp;
-    complex_t* in_o = base;                    /* h */
-    complex_t* out_o = in_o + h;               /* h */
-    complex_t* in_a = out_o + h;               /* q */
-    complex_t* out_a = in_a + q;               /* q */
-    complex_t* in_b = out_a + q;               /* q */
-    complex_t* out_b = in_b + q;               /* q */
-    complex_t* e = out_b + q;                  /* h */
-    if ((e + h) > *sp + (5 * n)) return -1;    /* pool exhausted */
+    complex_t* out_o = base;                   /* h */
+    complex_t* out_a = out_o + h;              /* q */
+    complex_t* out_b = out_a + q;              /* q */
+    if (out_b + q > pool_end) return -1;       /* pool exhausted */
 
-    for (int m = 0; m < h; m++) in_o[m] = in[2 * m + 1];
-    for (int l = 0; l < q; l++) in_a[l] = in[4 * l];
-    for (int l = 0; l < q; l++) in_b[l] = in[4 * l + 2];
-
-    complex_t* mark = e + h;
-    int rc = sr_recursion(out_o, in_o, h, dir, &mark);
-    if (rc == 0) rc = sr_recursion(out_a, in_a, q, dir, &mark);
-    if (rc == 0) rc = sr_recursion(out_b, in_b, q, dir, &mark);
+    complex_t* mark = out_b + q;
+    int rc = sr_recursion(out_o, in + stride, 2 * stride, h, dir, &mark,
+                          pool_end);
+    if (rc == 0)
+        rc = sr_recursion(out_a, in, 4 * stride, q, dir, &mark, pool_end);
+    if (rc == 0)
+        rc = sr_recursion(out_b, in + 2 * stride, 4 * stride, q, dir, &mark,
+                          pool_end);
     if (rc != 0) return rc;
 
-    /* E[k] = A[k mod q] + w_h^k * B[k mod q], k = 0..h-1 */
-    complex_t wh = twiddle_factor(1, h, dir);
-    complex_t wk = 1.0;
+    /* E[k] = A[k mod q] + w_h^k * B[k mod q]
+     * X[k] = E[k] + w_n^k * O[k], X[k+h] = E[k] - w_n^k * O[k] */
+    const complex_t wh = twiddle_factor(1, h, dir);
+    const complex_t wn = twiddle_factor(1, n, dir);
+    complex_t w_h = 1.0, w_n = 1.0;
     for (int k = 0; k < h; k++) {
-        int kq = k & (q - 1);          /* k mod q; q is a power of two */
-        e[k] = out_a[kq] + out_b[kq] * wk;
-        wk *= wh;
-    }
-
-    /* X[k] = E[k] + w_n^k * O[k] and X[k+h] = E[k] - w_n^k * O[k] */
-    complex_t wn = twiddle_factor(1, n, dir);
-    wk = 1.0;
-    for (int k = 0; k < h; k++) {
-        complex_t t = out_o[k] * wk;
-        out[k] = e[k] + t;
-        out[k + h] = e[k] - t;
-        wk *= wn;
+        const int kq = k & (q - 1);    /* q is a power of two */
+        const complex_t e = out_a[kq] + out_b[kq] * w_h;
+        const complex_t t = out_o[k] * w_n;
+        out[k] = e + t;
+        out[k + h] = e - t;
+        w_h *= wh;
+        w_n *= wn;
     }
 
     return 0;
@@ -99,12 +98,12 @@ fft_error_t split_radix_fft(complex_t* x, int n, fft_direction dir) {
     if (n == 1) return FFT_OK;
 
     /* The kernel reads in[] while writing out[], so it cannot run in place. */
-    complex_t* pool = (complex_t*)malloc(((size_t)6 * n) * sizeof(complex_t));
+    complex_t* pool = (complex_t*)malloc(((size_t)4 * n) * sizeof(complex_t));
     if (!pool) return FFT_ERR_ALLOC;
     memcpy(pool, x, (size_t)n * sizeof(complex_t));
 
     complex_t* cursor = pool + n;        /* pool[0..n-1] holds the input copy */
-    int exhausted = sr_recursion(x, pool, n, dir, &cursor);
+    int exhausted = sr_recursion(x, pool, 1, n, dir, &cursor, pool + 4 * n);
     free(pool);
     if (exhausted) return FFT_ERR_ALLOC;
 

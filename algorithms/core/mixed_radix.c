@@ -1,28 +1,12 @@
 #include "../../include/fft_common.h"
 #include "../../include/fft_algorithms.h"
 
-/**
- * Mixed-Radix FFT Implementation
- *
- * Handles any composite length (6, 10, 12, 15, 20, 24, 360, 1000, ...) by
- * recursive Cooley-Tukey factorisation, so no length that factors into small
- * primes is quadratic any more.
- *
- * The decomposition uses n = N2*n1 + n2 and k = k1 + N1*k2 with n = N1*N2:
- *
- *   X[k1 + N1*k2] = SUM_{n2} w_N^{n2*k1} * w_N2^{n2*k2}
- *                     * ( SUM_{n1} w_N1^{n1*k1} * x[N2*n1 + n2] )
- *
- * i.e. N2 transforms of length N1, then a twiddle multiply, then N1 transforms
- * of length N2. Because k = k1 + N1*k2 enumerates 0..N-1 exactly once as k1 and
- * k2 range, the output is already in natural order: there is no digit-reversal
- * step to get wrong.
- *
- * Prime lengths have no non-trivial factorisation and take a direct O(p^2)
- * DFT; fft_auto routes prime sizes to Bluestein instead, so this only affects
- * sizes whose largest prime factor is large.
- *
- * Time Complexity: O(n log n) whenever n is not prime
+/*
+ * Mixed-radix decimation-in-time. Recursively splits n = N1*N2 using the
+ * smallest prime factor, runs N2 transforms of length N1, applies the
+ * twiddles w_N^(n2*k1), then runs N1 transforms of length N2. Prime lengths
+ * fall back to a direct O(p^2) DFT, so fft_auto routes primes to Bluestein.
+ * Output is in natural order; there is no digit-reversal pass.
  */
 
 /* Smallest prime factor of n, or 0 when n < 4 or n is prime. */

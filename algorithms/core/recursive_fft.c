@@ -246,11 +246,9 @@ int main() {
     // Memory usage analysis
     printf("\n\nMemory Usage Analysis:\n");
     printf("---------------------\n");
-    printf("Recursive FFT allocates O(n log n) temporary arrays\n");
-    printf("For n=%d: ~%d complex numbers allocated\n", 
-           n, n * (log2_int(n) + 1));
-    printf("Memory overhead: %.1fx compared to in-place iterative\n",
-           (double)(log2_int(n) + 1));
+    printf("Recursive FFT keeps O(n) buffers live at peak\n");
+    printf("For n=%d: about %d complex numbers\n", n, 3 * n);
+    printf("Memory overhead: ~3x the transform size, versus in-place iterative\n");
     
     free_complex_array(signal);
     free_complex_array(reference);

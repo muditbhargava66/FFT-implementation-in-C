@@ -1,55 +1,23 @@
 #include "../../include/fft_common.h"
 #include "../../include/fft_algorithms.h"
 
-/**
- * @file bluestein.c
- * @brief Bluestein's Algorithm (Chirp Z-Transform) Implementation
- * 
- * @details
- * Bluestein's algorithm computes the DFT for arbitrary lengths (not just powers of 2)
- * by converting the DFT into a convolution using a chirp sequence. This allows us to
- * use fast convolution via FFT to compute DFTs of any size.
- * 
- * Mathematical Foundation:
- * The DFT can be rewritten as:
- *   X[k] = sum(n=0 to N-1) x[n] * exp(-2πi*kn/N)
- *        = sum(n=0 to N-1) x[n] * exp(-πi*n²/N) * exp(-πi*k²/N) * exp(πi*(n-k)²/N)
- * 
- * This is a convolution of x[n]*exp(-πi*n²/N) with exp(-πi*n²/N).
- * 
- * Algorithm Steps:
- * 1. Compute chirp sequence: exp(-πi*k²/N)
- * 2. Multiply input by conjugate chirp: a[k] = x[k] * conj(chirp[k])
- * 3. Prepare convolution kernel from chirp sequence
- * 4. Zero-pad both sequences to next power of 2 ≥ 2N-1
- * 5. Compute FFT-based convolution
- * 6. Multiply result by conjugate chirp to get final DFT
- * 
- * @author FFT Study Repository
- * @date 2024
- * 
- * Time Complexity: O(n log n) for any n
- * Space Complexity: O(n)
- * 
- * References:
- * [1] Bluestein, L. (1970). "A linear filtering approach to the computation of 
- *     discrete Fourier transform"
- * [2] Rabiner, L. R., et al. (1969). "The chirp z-transform algorithm"
+/*
+ * Bluestein's chirp-z transform: an n-point DFT of any length via one
+ * power-of-two convolution. With c[m] = exp(dir*pi*i*m^2/n), the identity
+ * k*n = (n^2 + k^2 - (k-n)^2)/2 gives
+ *
+ *   X[k] = c[k] * SUM_j x[j]*c[j]*conj(c[k-j]),
+ *
+ * which is a linear convolution of x*c with conj(c). Evaluating it with an
+ * m-point FFT, m = next_pow2(2n-1), costs O(n log n) for any n, including
+ * primes. The price is three m-point FFTs and about 9n complex numbers of
+ * scratch, so fft_auto only uses this path when no cheaper factorisation
+ * exists.
  */
 
-/**
- * @brief Compute an FFT of arbitrary length with Bluestein's chirp-z trick
- *
- * @details
- * Rewrites the n-point DFT as a linear convolution of x[k]·c[k] with c[-k],
- * where c[k] = exp(dir·j·pi·k²/n), then evaluates that convolution with a
- * power-of-two FFT of length m >= 2n-1. This is what makes non-power-of-two
- * and prime lengths available at O(n log n) instead of O(n²).
- *
- * @param x Input/output array of length n
- * @param n Transform length (any positive integer)
- * @param dir Transform direction (FFT_FORWARD or FFT_INVERSE)
- * @return FFT_OK, FFT_ERR_NULL, FFT_ERR_RANGE, or FFT_ERR_ALLOC
+/*
+ * Bluestein FFT. Valid for any positive n. The inverse direction keeps the
+ * same construction with the opposite chirp sign, then scales by 1/n.
  */
 fft_error_t bluestein_fft(complex_t* x, int n, fft_direction dir) {
     /* Input validation */

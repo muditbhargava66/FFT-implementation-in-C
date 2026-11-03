@@ -54,8 +54,21 @@ ctest --test-dir build --output-on-failure
 
 `ctest` runs two CPU binaries: `test_all`, which compares every implementation
 against a direct DFT, and `test_utils`, which covers the file I/O and helper
-functions. A successful `test_all` run ends with `1362/1362 checks passed`; the
-utility suite ends with `54/54 checks passed`.
+functions. On an AVX2-capable x86 host a successful `test_all` run ends with
+`1406/1406 checks passed`; hosts without AVX2 skip that kernel's entries and
+report fewer checks. The utility suite ends with `54/54 checks passed`.
+
+An OpenMP build adds the threaded radix-4 kernel and a concurrency test:
+
+```bash
+cmake -S . -B build-omp -DFFT_ENABLE_OPENMP=ON
+cmake --build build-omp
+ctest --test-dir build-omp --output-on-failure
+```
+
+In that configuration `test_all` runs 1415 checks and `test_threads` adds 17712
+planner and wisdom checks. The kernel is selected from 524288 points when more
+than one thread is available.
 
 On macOS 14 or newer, `cmake -S . -B build-metal -DFFT_ENABLE_METAL=ON` adds
 `test_gpu_metal` (70 checks), which runs the MPSGraph backend against a direct

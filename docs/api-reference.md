@@ -136,7 +136,9 @@ const char *fft_plan_algorithm_name(fft_plan_t plan);
 ```
 
 Returns a static string such as `"Radix-4"`, or `"Unknown"` for a null plan.
-Use it instead of duplicating the selection rules in display code.
+The optional kernels add `"Radix-4 (AVX2)"`, `"Radix-4 (OpenMP)"` and
+`"Four-Step"`. Use it instead of duplicating the selection rules in display
+code.
 
 ### `fft_auto`
 
@@ -173,8 +175,9 @@ and transposes back.
 ## Wisdom cache
 
 The cache maps `(transform size, planning flags)` to the algorithm chosen for
-that pair. Plans consult it before deciding. It is process-global and unlocked;
-do not plan concurrently.
+that pair. Plans consult it before deciding. It is process-global and guarded by
+a C11 atomic spin lock, so separate plans can be created and executed
+concurrently. A single plan is still not shareable between threads.
 
 ### `fft_export_wisdom_to_string`
 
@@ -197,7 +200,9 @@ Replaces the cache with the entries in the string and returns the number
 imported. Malformed lines, non-positive sizes and unknown algorithm ids are
 skipped. Entries that name a GPU algorithm are kept even on a machine without
 one; they are checked again when used. Entries pairing an algorithm with a size
-it cannot transform are skipped.
+it cannot transform are skipped. Parsing happens on a local array and the cache
+is replaced under the lock, so a concurrent export or lookup sees either the old
+set or the new one, never a partial one.
 
 ```c
 char *wisdom = fft_export_wisdom_to_string();
@@ -216,11 +221,12 @@ unsigned fft_get_hardware_capabilities(void);
 
 Returns a bitmask of `FFT_HW_CPU_SSE`, `FFT_HW_CPU_AVX`, `FFT_HW_CPU_AVX2`,
 `FFT_HW_CPU_NEON`, `FFT_HW_GPU_CUDA`, `FFT_HW_GPU_MPS` and
-`FFT_HW_GPU_OPENCL`.
+`FFT_HW_GPU_OPENCL`. The OpenCL bit is reserved; no backend sets it.
 
-The CPU bits report what the processor supports. No kernel dispatches on them:
-there is no SIMD or NEON implementation in this library. On x86 the AVX bits
-also require the OS to preserve YMM state, which is checked through `XGETBV`.
+The CPU bits report what the processor supports. The AVX2 kernel performs its
+own check through `__builtin_cpu_supports("avx2")`; the cap bits themselves
+remain informational. On x86 the AVX bits also require the OS to preserve YMM
+state, which is checked through `XGETBV`.
 
 `FFT_HW_GPU_MPS` is set only when the library was built with
 `-DFFT_ENABLE_METAL=ON`, the OS is macOS 14 or newer, and a Metal device is
@@ -262,8 +268,10 @@ unscaled; inverse transforms carry 1/N. A 2-D inverse carries 1/(rows*cols).
 | `int fft_gpu_set_device(int)` | Metal accepts index 0 only; CUDA selection is not implemented. |
 
 Plans and memory handles are independent objects. A plan can execute repeatedly
-against different buffer pairs. They are not reference counted and the interface
-has no locking, so do not share a device, plan or buffer across threads.
+against different buffer pairs. The selected backend is process-global:
+initialize and clean it up from one thread, before creating plans. Plans,
+memory handles and buffers are not reference counted and the interface has no
+locking, so do not share a device, plan or buffer across threads.
 
 ## Memory allocation
 

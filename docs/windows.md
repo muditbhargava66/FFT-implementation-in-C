@@ -1,24 +1,24 @@
 # Windows Support
 
 How to build and test this library on Windows, and what is actually verified
-there. Current release: **3.3.0 (2 November 2026)**.
+there. Current release: **3.4.0 (3 November 2026)**.
 
 ## What works
 
 | Toolchain | Status |
 | --------- | ------ |
-| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified**: 3.3.0 locally with GCC 13.2.0, 1362/1362 + 54/54 checks; CI with GCC 16.2.0 (3.2.0) |
-| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI**: 3.2.0 with Clang 23.1.3; tests, benchmarks and demos pass |
+| MinGW-w64 GCC (MSYS2 or Strawberry) | **Verified locally**: 3.4.0 with GCC 13.2.0, 1406/1406 + 54/54 checks, and 1415/1415 + 17712 with `-DFFT_ENABLE_OPENMP=ON`; the CI lane uses GCC 16.2.0 |
+| MinGW-w64 clang (MSYS2 UCRT64) | **Verified in CI through 3.3.0** with Clang 23.1.3; the 3.4.0 lane uses the same compiler |
 | clang-cl | Expected to work; not verified |
 | MSVC `cl.exe` | **Cannot build this library** |
 | CUDA backend | **Not available natively**; verified under WSL on a GTX 1050 (CUDA 11.5) |
 
-The 3.3.0 Windows run executes both test binaries, the benchmarks and all nine
+The 3.4.0 Windows run executes both test binaries, the benchmarks and all nine
 demo programs (eight applications plus `gpu_benchmark`) with zero warnings.
 Windows application control on the verification machine blocked three of the
 optimized demo binaries by hash; the full demo sweep was run from a Release
 build with `-g` added, which changes the binaries but not the code paths. The
-tests and benchmarks ran from the plain Release build. The 3.2.0 CI rows are
+tests and benchmarks ran from the plain Release build. The 3.3.0 CI rows are
 retained for history. CUDA cannot be built natively: nvcc on Windows requires
 MSVC as its host compiler, and MSVC cannot build the library's C11 `_Complex`
 kernels. Use WSL or Linux instead.
@@ -99,7 +99,7 @@ cmake --build build-cuda
 ctest --test-dir build-cuda --output-on-failure
 ```
 
-The run passed 1362/1362 `test_all` checks, 54/54 utility checks and 74/74
+The run passed 1406/1406 `test_all` checks, 54/54 utility checks and 74/74
 `test_gpu_cuda` checks, with CTest reporting 3/3. `gpu_benchmark` measured
 0.22x CPU speed at 1024, 0.67x at 4096, 3.56x at 65536 and 13.41x at 1048576;
 small transforms are dominated by transfer and Pascal's FP64 rate. The CUDA

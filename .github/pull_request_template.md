@@ -24,9 +24,12 @@ run; a reviewer will ask for the output.
   cmake --build build
   ```
 
-- [ ] `ctest --test-dir build --output-on-failure` — expected **1362/1362**
-      checks in `test_all` and **54/54** in `test_utils`, 2/2 CTest tests
-      (3/3 with a GPU backend enabled; GPU tests report a skip without a device).
+- [ ] `ctest --test-dir build --output-on-failure` — expected **1406/1406**
+      checks in `test_all` on an AVX2-capable x86 build and **54/54** in
+      `test_utils`, 2/2 CTest tests. Hosts without AVX2 skip that kernel's
+      entries and report fewer checks. An OpenMP build expects **1415/1415**
+      plus **17712** threaded checks and 3/3 CTest tests; a GPU backend adds one
+      more test. GPU tests report a skip without a device.
 - [ ] No new compiler warnings: Linux and macOS CI builds with `-Werror`, and
       every C job also fails on a `warning:` line in the build log.
 - [ ] `./build/bin/benchmark_all` reports `Failed: 0` (include the row count and

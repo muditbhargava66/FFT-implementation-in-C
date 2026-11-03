@@ -1,6 +1,6 @@
 # FFT Implementation in C
 
-A C11 FFT library with seven FFT kernels, two DFT references, a planning API,
+A C11 FFT library with ten FFT kernels, two DFT references, a planning API,
 algorithm selection based on measured cost, and optional CUDA (Linux/WSL) and
 Metal (macOS) backends. GCC and Clang on Linux, macOS and Windows (MinGW-w64);
 MSVC's `cl.exe` is not supported because it has no C11 `_Complex` arithmetic.
@@ -27,22 +27,22 @@ build on Linux or WSL produces `test_gpu_cuda`.
 
 ## Verification
 
-Release 3.3.0 was run locally on Windows 11 with MinGW-w64 GCC 13.2.0
-(1362/1362 `test_all` checks, 54/54 utility checks, 0 warnings), and on Ubuntu
-22.04 under WSL with GCC 11.4.0 and CUDA 11.5.119 on a GTX 1050
-(1362/1362 + 54/54 + 74/74 CUDA checks, CTest 3/3, benchmarks 52 passed /
-0 failed / 2 skipped, 0 warnings). The eight application demos and
-`gpu_benchmark` pass under both configurations; the Windows demos ran from a
-Release build with `-g` because application control blocked three optimized
-binaries by hash. The 3.3.0 branch CI run passed all eight jobs: Linux GCC and
-Clang, macOS 15 arm64 (including the Metal build and test), ASan/UBSan, Windows
-MinGW-w64 GCC and Clang, the CUDA 12.6 compile-and-skip container lane, and
-strict docs. The macOS job is pinned to `macos-15` because `macos-latest` now
-resolves to macOS 26 Arm64 and queued during the macOS 14 retirement migration.
-The 3.2.0 macOS and Linux results are retained in the README history; its Metal
-build passed 70/70 GPU checks on an M1 Pro. The CPU performance ratios come from
-a Windows 11 machine running the 3.0.0 kernels; the kernels have not changed
-since.
+Release 3.4.0 was verified locally on Windows 11 with MinGW-w64 GCC 13.2.0:
+1406/1406 `test_all` checks and 54/54 utility checks in a default build,
+1415/1415 and 17712 threaded checks with `-DFFT_ENABLE_OPENMP=ON`, both
+warning-free with `-Werror`; CTest 2/2 and 3/3; all nine demos pass;
+`benchmark_all` reports 66 passed / 0 failed / 54 skipped (68/0/52 with OpenMP).
+On Ubuntu 22.04 under WSL, GCC 11.4.0 passed the default, OpenMP, `-Werror` and
+ASan/UBSan builds, and the CUDA 11.5.119 build on a GTX 1050 passed 74/74 GPU
+checks with CTest 3/3. The strict MkDocs build passes. The 3.4.0 CI workflow
+adds an OpenMP lane to the previous eight jobs, for nine total; Linux GCC and
+Clang, macOS 15 arm64 with Metal, ASan/UBSan, Windows MinGW-w64 GCC and Clang,
+the CUDA 12.6 compile-and-skip container lane, and strict docs are unchanged.
+The macOS job is pinned to `macos-15` because `macos-latest` now resolves to
+macOS 26 Arm64 and queued during the macOS 14 retirement migration. The 3.2.0
+macOS and Linux results are retained in the README history; its Metal build
+passed 70/70 GPU checks on an M1 Pro. The CPU performance ratios come from the
+WSL 3.4.0 build; the CUDA numbers come from the GTX 1050.
 
 ## Background
 

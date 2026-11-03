@@ -10,6 +10,10 @@
  * CPU-vs-GPU benchmark. The GPU backend is not built by default (see
  * CMakeLists.txt), so this reports "GPU not available" and still exercises the
  * CPU path rather than failing.
+ *
+ * The CPU side deliberately runs radix-2 DIT: it is the baseline used in
+ * docs/performance.md and the one the GPU numbers are compared against, not the
+ * planner's AVX2/OpenMP choice.
  */
 
 /* clock() measures processor time, which does not include a blocking wait for

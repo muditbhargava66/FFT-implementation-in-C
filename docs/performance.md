@@ -1,64 +1,81 @@
 # Performance Guide
 
-The numbers on this page were measured on the Windows machine described below
-using the 3.0.0 kernels. Releases 3.1.0, 3.2.0 and 3.3.0 do not change the CPU
-kernels, so they still describe them. They are not a cross-platform comparison.
-Correctness was re-checked on Linux, macOS and Windows (see the README).
+The 3.4.0 power-of-two ratios were measured on the WSL host described below with
+the new kernels. The non-power-of-two and GPU tables come from earlier runs on
+the same laptop; those kernels did not change in 3.4.0, so their ratios still
+describe the code. None of this is a cross-platform comparison. Correctness was
+re-checked on Linux, macOS and Windows (see the README).
 
 ## How the numbers were measured
 
-Each figure is a cost relative to radix-2 DIT at the same `n`. Ratios are taken
-inside one run, so both kernels see the same CPU state. Below 1.00 means faster
-than radix-2 DIT.
+For the 3.4.0 table, a small probe times one batch of each kernel per round, in
+rotation, so a clock-frequency change moves all candidates together. Before each
+batch the work buffer is reset to an impulse: a forward transform scales its
+input by `n`, and repeatedly transforming arbitrary data in place would overflow
+it to `Inf` and then `NaN`. Each batch is calibrated to span about 150 ms, and
+the best of five batches is kept. The clock is `omp_get_wtime()`.
 
-A batch of transforms is timed; if `clock()` cannot resolve the interval, the
-batch grows and is retried until it spans at least 20 ms. The minimum of three
-batches is kept, because the minimum discards scheduler interference that a mean
-would include. Candidates are visited in rotation so a clock-frequency change
-moves them together. Before each repetition the work buffer is restored from a
-seed: a forward transform scales its input by `n`, so repeatedly transforming
-one buffer in place overflows it to `Inf` and then `NaN`.
+The earlier tables used the same batching idea with `clock()`, keeping the
+minimum of three batches. On Windows `clock()` advances about once a millisecond,
+so a figure measured from a single small transform is quantisation, not timing.
 
-Absolute milliseconds are not tabulated because three runs of one probe, minutes
-apart, put radix-2 DIT at n=16384 at 0.501, 1.372 and 1.433 ms — a 2.9x spread
-for identical code. Ratios stay steady across those runs.
+Absolute milliseconds vary with thermal state and scheduler load. Ratios taken
+inside one run are steadier. As a scale reference, one run of the probe put a
+1048576-point forward transform at 172 ms for radix-2 DIT, 70 ms for radix-4,
+63 ms for AVX2 radix-4, 60 ms for OpenMP radix-4, 77 ms for four-step and 225 ms
+for split-radix.
 
-Environment: Intel Core i7-9750H (6 cores, 2.6 GHz base), Windows 11,
-MinGW-w64 GCC 13.2.0, default build options (`-O3`, no `-march=native`).
+Environment for the 3.4.0 ratios: Intel Core i7-9750H (6 cores, 12 threads,
+2.6 GHz base), Ubuntu 22.04 under WSL, GCC 11.4.0, `-O3`, no `-march=native`,
+`FFT_ENABLE_OPENMP=ON` so every kernel is compiled in. The OpenMP kernel used 12
+threads.
 
 Two limits worth remembering:
 
-- `clock()` advances about once a millisecond on Windows. A figure measured from
-  a single small transform is quantisation, not timing.
-- Repeated runs of one kernel move by a few percent. Gaps smaller than the
-  displayed range are not measurements of the algorithms.
+- A gap smaller than about 5% is inside the run-to-run spread of this machine.
+- The threshold table is a heuristic for one class of machine. `FFT_MEASURE`
+  times the candidates on the actual host.
 
 ## Power-of-two sizes
 
-Range in parentheses is the observed min-max across the sampled runs.
+Cost relative to radix-2 DIT at the same `n`; below 1.00 is faster. One
+representative interleaved run. The OpenMP kernel falls back to scalar radix-4
+below 524288 points, which is why its ratio tracks the radix-4 column there.
 
-| n | Radix-2 DIF | Radix-4 | Split-Radix | Mixed-Radix | Bluestein |
+| n | Radix-4 | AVX2 | OpenMP | Four-Step | Split-Radix |
 | --- | --- | --- | --- | --- | --- |
-| 16 | 1.06 (0.93-1.15) | 1.41 (1.38-1.43) | 1.64 (1.57-1.71) | 0.99 (0.93-1.02) | 11.11 (10.93-11.22) |
-| 64 | 1.06 (1.05-1.08) | 1.21 (1.18-1.26) | 2.44 (2.10-2.67) | 1.02 (0.96-1.10) | 11.30 (10.99-11.85) |
-| 256 | 1.00 (0.96-1.03) | 1.10 (0.95-1.26) | 2.38 (2.31-2.50) | 0.99 (0.94-1.02) | 11.90 (10.84-12.44) |
-| 512 | 0.95 (0.92-0.99) | **0.83 (0.81-0.84)** | 2.00 (1.95-2.08) | 1.01 (0.96-1.09) | 10.34 (10.01-10.85) |
-| 1024 | 0.97 (0.94-1.02) | 0.97 (0.88-1.13) | 2.30 (2.25-2.37) | 1.04 (1.01-1.06) | 11.41 (10.44-12.22) |
-| 4096 | 1.02 (0.97-1.05) | **0.89 (0.83-0.96)** | 1.99 (1.91-2.09) | 1.03 (0.97-1.08) | 9.54 (9.42-9.73) |
-| 16384 | 1.00 (0.95-1.05) | **0.93 (0.85-0.99)** | 2.86 (2.58-3.15) | 1.01 (0.96-1.09) | 9.68 (9.62-9.78) |
+| 4096 | 0.76 | **0.26** | 0.79 | 1.12 | 1.35 |
+| 16384 | 0.51 | **0.24** | 0.66 | 0.63 | 1.32 |
+| 65536 | 0.32 | **0.20** | 0.31 | 0.49 | 1.30 |
+| 262144 | 0.33 | **0.24** | 0.39 | 0.45 | 1.35 |
+| 524288 | 0.38 | 0.29 | **0.22** | 0.40 | 1.13 |
+| 1048576 | 0.41 | 0.37 | **0.35** | 0.45 | 1.31 |
+| 2097152 | 0.47 | 0.42 | 0.42 | 0.49 | 1.35 |
+| 4194304 | 0.49 | 0.42 | 0.42 | 0.54 | 1.41 |
 
-Two things the table cannot show by itself:
+What the table says:
 
-`mixed_radix_fft()` forwards power-of-two lengths to `radix2_dit_fft()`, so its
-column is the control; the 0.99-1.04 spread is the resolution of the method.
-Split-radix has the lowest multiplication count but is 1.6-2.9x slower in wall
-time because its recursion moves about 2.5n elements per level, and memory
-traffic is what binds here.
+- AVX2 radix-4 is the fastest single-threaded kernel from 4096 to 262144
+  points, at 1.3x to 4x the scalar radix-2 speed. The advantage over scalar
+  radix-4 shrinks from about 3x at 4096 to 10-15% at 1M, where memory traffic
+  binds.
+- OpenMP radix-4 wins at 524288 by about 24% over AVX2 on this 12-thread host,
+  then ties it from 1M up. Scaling beyond one socket was not measured.
+- Four-step was 20-40% slower than AVX2 on this host at 1M-4M. It lost to AVX2
+  on the Windows host as well, and to OpenMP where that kernel was compiled in,
+  so the planner leaves it to `FFT_MEASURE` rather than selecting it by size.
+- Split-radix now measures 1.1-1.5x radix-2 DIT, down from 2.0-2.9x before the
+  strided-input rewrite. It still loses to radix-4 because the recursion carries
+  more memory traffic per stage.
+- Radix-4 beats radix-2 DIT from 4096 points up by a wide margin on this host.
+  The planner still switches at 256 points because the crossover moves with the
+  compiler and the digit-reversal buffer's cost.
 
 ## Non-power-of-two sizes
 
 Ratio of Bluestein to mixed-radix at the same length; below 1.00 means Bluestein
-is faster.
+is faster. Measured on the Windows 3.0.0 machine; both kernels are unchanged
+since then.
 
 | n | Factorisation | Bluestein / Mixed-Radix | Mixed-Radix slower by |
 | --- | --- | --- | --- |
@@ -77,9 +94,9 @@ complex numbers of scratch, mixed-radix about n.
 
 ## What is not measured
 
-There is no SIMD, threaded or fixed-point kernel to measure. The opt-in Metal
-and CUDA backends are measured separately below and are not part of the CPU
-ratio tables.
+The OpenMP kernel's scaling past 12 threads, AVX-512, fixed-point arithmetic and
+a sustained batched GPU comparison are not measured. The opt-in Metal and CUDA
+backends are measured separately below and are not part of the CPU ratio tables.
 
 `fft_recursive`, `naive_dft` and `optimized_dft` are excluded from the ratio
 table. They are reference implementations, and the DFTs are O(n²): a naive
@@ -106,7 +123,7 @@ small transform is slower on the GPU. The GPU only wins on this machine at
 The backend computes in float32 while the CPU kernels use double. Maximum
 relative error against the CPU result was 4.5e-6 at 1024 and 5.3e-4 at 1048576.
 These are single-machine one-shot measurements; they are not comparable to the
-Windows ratios above.
+WSL ratios above.
 
 ## CUDA backend
 
@@ -138,20 +155,25 @@ consumer Pascal card rather than a datacenter GPU.
 | Radix-4 | (3N/8) log₂N | N log₂N |
 | Split-Radix | (N/3) log₂N - 2N/9 + 4/9 | N log₂N |
 
-Operation counts predict relative speed only until memory traffic dominates.
-Split-radix is the clearest example: it has the fewest multiplications and is
-the slowest of the power-of-two kernels here.
+AVX2, OpenMP and four-step use the radix-4 count; the first two change how the
+same arithmetic is scheduled, not how much of it there is. Operation counts
+predict relative speed only until memory traffic dominates. Split-radix is the
+clearest example: it has the fewest multiplications and is still slower than
+radix-4 here.
 
 ## Build flags
 
-The CMake build uses `-Wall -Wextra -O3`. Two flags are deliberately not used:
+The CMake build uses `-Wall -Wextra -O3`. Three flags need attention:
 
 - `-march=native` is opt-in (`-DFFT_NATIVE_ARCH=ON`). It produces binaries that
   only run on the build CPU, and with MinGW-w64 GCC 13.2.0 it triggered
   misaligned 32-byte AVX stores that crashed `realtime_analyzer`
-  intermittently. The published numbers were measured without it.
+  intermittently. The AVX2 kernel does not need it: it is compiled with
+  `__attribute__((target("avx2")))` and dispatched at runtime.
 - `-ffast-math` is unsuitable for an FFT. It allows reassociation of butterfly
   sums and assumes no NaN or Inf, which makes results non-reproducible.
+- `-DFFT_ENABLE_OPENMP=ON` builds the threaded radix-4 kernel. It is off by
+  default; the CMake option finds OpenMP and links it into the library.
 
 On POSIX builds the project defines `_POSIX_C_SOURCE=200809L` (through
 `fft_common.h`), so `posix_memalign` and `sysconf` are declared under strict
@@ -160,6 +182,8 @@ C11.
 ## Practical advice
 
 - Use a power of two when the application allows it.
+- Build with OpenMP and plan once for large transforms; below 524288 points the
+  threaded kernel falls back, so the option costs nothing there.
 - Use `fft_plan_r2c_1d()` for real input: it returns `n/2+1` bins and avoids the
   work of transforming an all-zero imaginary part.
 - Reuse a plan for repeated transforms of the same size; planning with

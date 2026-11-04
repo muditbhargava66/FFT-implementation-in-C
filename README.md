@@ -130,6 +130,25 @@ still requires powers of two.
 The backend also powers `FFT_PREFER_GPU` in the planner and
 `build/bin/gpu_benchmark`.
 
+### Apple Silicon CI
+
+GitHub-hosted arm64 macOS runners exist (`macos-15`, `macos-26` and
+`macos-latest`), but their pool is capacity-limited. The required CI lane
+therefore uses `macos-15-intel`. The `macOS Apple Silicon` workflow runs the
+same build, test, benchmark, demo and Metal checks on a hosted arm64 runner
+when one is available. It is manual so a busy arm64 pool cannot block a pull
+request. After the workflow is on `main`, start it from the Actions tab or
+with:
+
+```bash
+gh workflow run macos-arm64.yml
+```
+
+The workflow lets you choose `macos-26` (default) or `macos-15` at dispatch
+time. If GitHub cancels the job before any steps run with "not acquired by
+Runner", the arm64 pool had no capacity; rerun it later or pick the other
+label.
+
 ### CUDA backend
 
 On Linux, or Windows Subsystem for Linux, with a CUDA toolkit that supports the

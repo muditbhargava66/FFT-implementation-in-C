@@ -5,10 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-11-04
+
+3.5.0 is a documentation and reporting release. The kernels, planner, public
+API and wisdom format are unchanged from 3.4.0.
+
+### Fixed
+- Corrected the performance claims to match the measured tables: AVX2 radix-4
+  is 3.8-5x radix-2 DIT from 4096 to 262144 points and 2.4-3.5x above that;
+  four-step is 17-30% slower over 1M-4M; split-radix is 1.1-1.4x radix-2 DIT.
+- Removed the OpenMP ratios below 524288 points, where the kernel calls scalar
+  radix-4 and the benchmark does not time it.
+- Corrected the four-step selection claim: the planner leaves it to
+  `FFT_MEASURE`; it is not selected from 1M points.
+- Corrected the OpenMP planner claim: selection depends on the build and the
+  thread count, not on being faster than AVX2 at plan time.
+- Documented `FFT_MEASURE` accurately: it keeps the heuristic unless a
+  challenger wins the sweep by more than 15% and repeats the win.
+- Corrected the radix-4 crossover in the quick start from 512 to 256 points.
+- Corrected the Metal crossover: the GPU is slower through 65536 points and
+  only wins at 1048576 on the measured host.
+- Corrected the 3.0.0 changelog error-contract bullet: a failed in-place
+  transform may leave the buffer partly written.
+- `benchmark_all` now reports sizes that no compiled kernel covers as skipped
+  instead of "no implementation passed".
+
+### Changed
+- Tightened comments and prose across the algorithms, applications and docs:
+  removed duplicated rationale, narrating comments and generated-looking
+  release paragraphs.
+- Version bumped to 3.5.0 in CMake, `fft_version()`, the documentation and the
+  security policy.
+
 ## [3.4.0] - 2026-11-03
 
-3.4.0 adds the kernels and planner work that earlier releases listed as
-remaining: an AVX2 radix-4 path, an opt-in OpenMP kernel, a cache-blocked
+3.4.0 adds an AVX2 radix-4 path, an opt-in OpenMP kernel, a cache-blocked
 four-step transform, a faster split-radix layout, and thread-safe planning. The
 public API and the wisdom format are unchanged.
 
@@ -46,8 +77,8 @@ public API and the wisdom format are unchanged.
   still not shareable between threads.
 - `split_radix_fft()` reads its input with a stride instead of gathering even
   and odd samples into scratch at every level, and the two combines share one
-  pass. Peak scratch drops to about 3n (pool sized 4n), and the kernel is
-  20-25% faster at 4096-32768 points.
+  pass. Peak scratch drops to about 3n (pool sized 4n), and the kernel now
+  measures 1.1-1.4x radix-2 DIT, down from 2.0-2.9x.
 - `test_all` grows from 1362 checks to 1406 on an AVX2-capable x86 build and
   1415 with OpenMP; hosts without AVX2 skip that kernel's entries.
   `test_utils` stays at 54 checks. The test sizes now run to 1048576,
@@ -378,8 +409,8 @@ after release on Ubuntu 24.04 (GCC 13.3.0, Clang 18.1.3) and macOS 27 arm64
   private scratch buffer, interleaved, and a challenger needs a repeatable win
   before it replaces the size heuristic. `FFT_CONSERVE_MEMORY` overrides
   measurement and selects in-place or low-scratch kernels.
-- **Error codes:** all transforms return `fft_error_t` and leave the buffer
-  untouched on failure. The library no longer terminates the host process.
+- **Error codes:** all transforms return `fft_error_t` instead of terminating
+  the process; a failed in-place transform may leave its buffer partly written.
 - **Applications:** 2-D convolution, coherence estimation, and the existing
   audio, filtering, pitch, power-spectrum and realtime demos.
 - **CI and maintenance:** Linux GCC/Clang, Windows MinGW-w64 and a strict MkDocs
@@ -518,7 +549,8 @@ were removed in 3.0.0; see that entry for the details.*
 - Example programs
 - Basic documentation
 
-[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.4.0...HEAD
+[Unreleased]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/muditbhargava66/FFT-implementation-in-C/compare/v3.1.0...v3.2.0

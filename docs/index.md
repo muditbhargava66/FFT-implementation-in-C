@@ -27,23 +27,14 @@ build on Linux or WSL produces `test_gpu_cuda`.
 
 ## Verification
 
-Release 3.4.0 was verified locally on Windows 11 with MinGW-w64 GCC 13.2.0:
-1406/1406 `test_all` checks and 54/54 utility checks in a default build,
-1415/1415 and 17712 threaded checks with `-DFFT_ENABLE_OPENMP=ON`, both
-warning-free with `-Werror`; CTest 2/2 and 3/3; all nine demos pass;
-`benchmark_all` reports 66 passed / 0 failed / 54 skipped (68/0/52 with OpenMP).
-On Ubuntu 22.04 under WSL, GCC 11.4.0 passed the default, OpenMP, `-Werror` and
-ASan/UBSan builds, and the CUDA 11.5.119 build on a GTX 1050 passed 74/74 GPU
-checks with CTest 3/3. The strict MkDocs build passes. The 3.4.0 CI workflow
-adds an OpenMP lane to the previous eight jobs, for nine total; Linux GCC and
-Clang, macOS 15 arm64 with Metal, ASan/UBSan, Windows MinGW-w64 GCC and Clang,
-the CUDA 12.6 compile-and-skip container lane, and strict docs are unchanged.
-The first push run (`cc15dca`, run 41640913349) passed all nine jobs.
-The macOS job is pinned to `macos-15` because `macos-latest` now resolves to
-macOS 26 Arm64 and queued during the macOS 14 retirement migration. The 3.2.0
-macOS and Linux results are retained in the README history; its Metal build
-passed 70/70 GPU checks on an M1 Pro. The CPU performance ratios come from the
-WSL 3.4.0 build; the CUDA numbers come from the GTX 1050.
+Release 3.5.0 changes documentation, code comments and benchmark reporting; no
+kernel or planner behavior changed. The 3.4.0 kernel set was verified on
+Windows 11 with MinGW-w64 GCC 13.2.0 and on Ubuntu 22.04 under WSL with GCC
+11.4.0, covering the default, OpenMP, `-Werror`, ASan/UBSan and CUDA builds. The
+exact check and benchmark counts are in the README table. The strict MkDocs
+build and the nine-job CI workflow pass; the macOS lane builds and tests the
+Metal backend, and the CUDA lane compiles without a device. CPU performance
+ratios come from the WSL 3.4.0 build and the CUDA numbers from the GTX 1050.
 
 ## Background
 

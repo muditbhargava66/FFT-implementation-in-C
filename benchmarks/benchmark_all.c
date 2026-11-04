@@ -310,7 +310,8 @@ void analyze_best_implementations(benchmark_result_t* results, int num_results) 
         if (best_impl) {
             printf("Size %6d: %s (%.4f ms)\n", size, best_impl, best_time);
         } else {
-            printf("Size %6d: no implementation passed\n", size);
+            printf("Size %6d: skipped (no compiled kernel covers this size)\n",
+                   size);
         }
     }
 }
@@ -465,6 +466,8 @@ int main() {
     printf("- Bluestein and Mixed-Radix are the only entries that accept non-power-of-2 sizes.\n");
     printf("- Naive DFT and Optimized DFT are O(n^2) and are skipped above n=%d.\n",
            implementations[num_implementations - 1].max_size);
+    printf("- Sizes above a kernel's benchmark range, or kernels unavailable on\n");
+    printf("  this host, are reported as skipped, not failed.\n");
     printf("- Timings are the mean of a batch grown until it spans at least %.0f ms,\n",
            MIN_BATCH_MS);
     printf("  because clock() on this platform is too coarse to time one small transform.\n");

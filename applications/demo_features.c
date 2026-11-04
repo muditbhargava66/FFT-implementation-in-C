@@ -63,10 +63,8 @@ void demo_automatic_selection(void) {
         
         generate_test_signal(data, n);
         
-        /* clock() advances about once a millisecond on Windows, so one small
-         * transform measures as 0.000 ms. The batch is grown until the clock
-         * records at least ~50 ticks, which keeps the quantisation error under
-         * the printed precision. */
+        /* Batch until clock() resolves the interval; one small transform
+         * would measure as 0.000 ms. */
         int reps = 32;
         double time_ms = 0.0;
         for (;;) {
@@ -191,9 +189,8 @@ void demo_simplified_api(void) {
     generate_test_signal(signal, n);
     
     printf("\nExecuting FFT with automatic optimization...\n");
-    /* A single 1024-point transform is far below clock()'s ~1 ms resolution on
-     * Windows, so reporting it here printed 0.000 ms. The measured-batch
-     * numbers are in the selection demo above and in benchmark_all. */
+    /* A single 1024-point transform is below clock()'s resolution on
+     * Windows; the measured-batch numbers are in benchmark_all. */
     fft_auto(signal, signal, n, -1);
     printf("Completed.\n");
     

@@ -364,9 +364,8 @@ int main() {
      * filter pass, but only the first repetition sees the original signal. */
     memcpy(signal, original, (size_t)signal_length * sizeof(complex_t));
 
-    /* No time-domain FIR path is implemented here, so no FIR figure is printed.
-     * The previous code timed an empty block and reported 0.000 ms as
-     * "estimated", which reads as a measurement but measured nothing. */
+    /* No time-domain FIR path is implemented here, so no FIR figure is
+     * printed. */
     int reps = 1;
     double total = 0.0;
     for (;;) {

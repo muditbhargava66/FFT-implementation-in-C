@@ -23,11 +23,6 @@ fft_error_t radix2_dit_fft(complex_t* x, int n, fft_direction dir) {
         }
     }
     
-    /* 
-     * Step 2: Danielson-Lanczos algorithm
-     * Iteratively combine smaller DFTs into larger ones
-     * Stage s combines DFTs of size 2^(s-1) into DFTs of size 2^s
-     */
     for (int stage = 1; stage <= log2n; stage++) {
         int m = 1 << stage;        /* Current DFT size = 2^stage */
         int half_m = m >> 1;        /* Half of current DFT size */
@@ -35,30 +30,23 @@ fft_error_t radix2_dit_fft(complex_t* x, int n, fft_direction dir) {
         /* Principal root of unity for this stage */
         complex_t w_m = twiddle_factor(1, m, dir);
         
-        /* Process all DFTs of size m */
         for (int k = 0; k < n; k += m) {
-            complex_t w = 1.0;  /* Initialize twiddle factor */
+            complex_t w = 1.0;
             
-            /* Butterfly operations within current DFT */
             for (int j = 0; j < half_m; j++) {
                 int t = k + j;          /* Top butterfly index */
                 int u = t + half_m;     /* Bottom butterfly index */
                 
-                /* Butterfly computation:
-                 * X[t] = X[t] + w * X[u]
-                 * X[u] = X[t] - w * X[u]
-                 */
                 complex_t temp = x[u] * w;
                 x[u] = x[t] - temp;
                 x[t] = x[t] + temp;
                 
-                /* Update twiddle factor for next butterfly */
                 w *= w_m;
             }
         }
     }
     
-    /* Step 3: Scale for inverse FFT */
+    /* Scale for inverse FFT */
     if (dir == FFT_INVERSE) {
         for (int i = 0; i < n; i++) {
             x[i] /= n;

@@ -15,7 +15,7 @@ one `n/2` plus two `n/4` decomposition, using a bump-allocated scratch pool
 instead of a `malloc` per recursion node. In 3.4.0 the recursion also reads its
 input with a stride rather than gathering even and odd samples into scratch at
 every level, and the two combine passes share one loop. Peak scratch is about 3n
-(pool sized 4n). That cut wall time from 2.0-2.9x radix-2 DIT to 1.1-1.5x, but it
+(pool sized 4n). That cut wall time from 2.0-2.9x radix-2 DIT to 1.1-1.4x, but it
 still loses to radix-4. The measurements are in the
 [Performance Guide](performance.md).
 
@@ -62,8 +62,7 @@ counts milliseconds on Windows and microseconds on POSIX.
 ## AVX2 radix-4
 
 `algorithms/core/radix4_avx2.c` vectorizes the radix-4 stage over two complex
-values per 256-bit register. A few details make it safe to ship in a default
-build:
+values per 256-bit register. The dispatch and portability details:
 
 - The file is compiled with GCC/Clang `__attribute__((target("avx2")))`; the
   rest of the library keeps the baseline ISA. `-march=native` is not required.
@@ -101,11 +100,10 @@ order. Sub-transforms use `radix4_fft_scratch()` and share one scratch buffer, s
 blocking does not add an allocation per row or column.
 
 The kernel is a correctness-tested candidate for `FFT_MEASURE`, not a heuristic
-choice. On the 3.4.0 hosts it measured 20-40% slower than AVX2 at 1M-4M points:
+choice. On the 3.4.0 hosts it measured 17-30% slower than AVX2 at 1M-4M points:
 the column gather, twiddle pass and transpose add roughly 4n element transfers
-that the in-cache radix kernels do not pay. It remains available because a
-different cache and memory hierarchy can move that balance, and `FFT_MEASURE`
-will pick it when it wins.
+that the in-cache radix kernels do not pay. It stays available for hosts where
+that balance differs.
 
 ## Planning state
 
@@ -130,11 +128,12 @@ interleaved run on the WSL host described in the
 | --- | --- | --- | --- |
 | Radix-4 | 0.76 | 0.51 | 0.41 |
 | Radix-4 AVX2 | 0.26 | 0.24 | 0.37 |
-| Radix-4 OpenMP | 0.79 | 0.66 | 0.35 |
+| Radix-4 OpenMP | — | — | 0.35 |
 | Four-Step | 1.12 | 0.63 | 0.45 |
 | Split-Radix | 1.35 | 1.32 | 1.31 |
 
-The OpenMP column is scalar radix-4 below 524288 because the kernel falls back.
+The OpenMP kernel is timed only from 524288 points; below that it calls scalar
+radix-4.
 
 ## Memory
 
@@ -211,12 +210,10 @@ defined, and the link otherwise fails with multiple definitions of `main`.
 
 ## Remaining work
 
-In rough order of expected value:
-
 1. Measure OpenMP scaling past one socket and decide whether the fixed 524288
    threshold should become a thread-count-aware rule.
 2. Fuse the four-step twiddle pass into the row FFT's first stage, or drop the
-   kernel if that does not close the 20-40% gap to AVX2.
+   kernel if that does not close the 17-30% gap to AVX2.
 3. Add an AVX-512 path behind the same runtime-dispatch pattern as AVX2.
 4. Add real-input kernels that exploit Hermitian symmetry instead of promoting
    to complex and transforming an all-zero imaginary part.

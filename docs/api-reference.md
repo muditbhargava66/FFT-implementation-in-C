@@ -80,7 +80,7 @@ before executing.
 | Flag | Value | Effect |
 | --- | --- | --- |
 | `FFT_ESTIMATE` | `0` | Choose by transform size. No timing. |
-| `FFT_MEASURE` | `1<<0` | Time the candidates that accept `n`, keep the fastest, and cache it. |
+| `FFT_MEASURE` | `1<<0` | Time the candidates; replace the heuristic only on a >15% sweep win that repeats in a paired re-run, then cache the choice. |
 | `FFT_WISDOM_ONLY` | `1<<3` | Use a cached choice or fail. Never measures. |
 | `FFT_REAL_INPUT` | `1<<5` | Set automatically by `fft_plan_r2c_1d`. |
 | `FFT_REAL_OUTPUT` | `1<<6` | Set automatically by `fft_plan_c2r_1d`. |

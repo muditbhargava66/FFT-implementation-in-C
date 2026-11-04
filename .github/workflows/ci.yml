@@ -20,7 +20,7 @@ concurrency:
 # shell, so that job carries its own compiler matrix; the macOS job uses the
 # runner's default toolchain. A separate Linux job builds with ASan and UBSan.
 # The OpenMP lane builds the threaded kernel and runs the planner concurrency
-# test; the other lanes build the single-threaded fallback. The docs job is
+# test; the other lanes build without it. The docs job is
 # independent and builds MkDocs in strict mode.
 #
 # FFT_ENABLE_CUDA is exercised by a compile-and-skip job in an NVIDIA CUDA

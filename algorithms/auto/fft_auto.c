@@ -263,23 +263,14 @@ static enum fft_algo select_algorithm(int n, unsigned flags) {
       return ALGO_GPU_MPS;
   }
 
-  /* Size rules from docs/performance.md. Power-of-two lengths below 256 use
-   * radix-2 DIT, which is in place and fastest there; above that scalar
-   * radix-4 wins, with AVX2 from 4096 and OpenMP from 512K when threads exist.
-   * The four-step kernel is benchmarked but did not beat AVX2/OpenMP on the
-   * verification hosts, so the heuristic leaves it to FFT_MEASURE instead of
-   * forcing it at large sizes. Non-power-of-two lengths use Bluestein, which
-   * won every measured length but needs about 9n complex numbers of scratch
-   * against mixed-radix's n, so FFT_CONSERVE_MEMORY prefers mixed-radix when
-   * n has cheap factors. */
+  /* Thresholds follow the measured crossovers. Four-step is left to
+   * FFT_MEASURE because it did not beat AVX2/OpenMP on the verification
+   * hosts. */
   if (is_power_of_two(n)) {
     if (flags & FFT_CONSERVE_MEMORY)
       return ALGO_RADIX2_DIT;
     if (n <= 256)
       return ALGO_RADIX2_DIT;
-    /* Measured crossovers on the verification host. OpenMP wins at 512K and
-     * above when threads are available; the single-threaded AVX2 kernel wins
-     * down to 4096 points. */
     if (n >= (1 << 19) && radix4_omp_available())
       return ALGO_RADIX4_OMP;
     if (n >= (1 << 12) && radix4_avx2_available())
@@ -870,7 +861,7 @@ void fft_free(void *p) {
 
 // Version string
 const char *fft_version(void) {
-  return "FFT Library v3.4.0 - Automatic Algorithm Selection";
+  return "FFT Library v3.5.0 - Automatic Algorithm Selection";
 }
 
 /*
@@ -1058,7 +1049,7 @@ int fft_import_wisdom_from_string(const char *wisdom) {
 #ifndef LIB_BUILD
 
 int main() {
-  printf("FFT Auto - Automatic Algorithm Selection v3.4.0\n");
+  printf("FFT Auto - Automatic Algorithm Selection v3.5.0\n");
   printf("===============================================\n\n");
 
   int test_sizes[] = {16, 64, 256, 1024, 97, 360, 1000};

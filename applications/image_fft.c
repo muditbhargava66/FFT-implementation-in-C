@@ -315,12 +315,9 @@ void demo_2d_fft_properties() {
     free_2d_complex(spectrum, rows);
 }
 
-/* Time one 2-D forward transform of `size`, batching until clock() can resolve
- * the interval. clock() advances about once a millisecond on Windows, so a
- * single small transform measures 0.000 ms and the derived pixels/ms figure
- * divides by zero. `seed` is copied in before each repetition so the timed work
- * sees finite data; the O(n^2) copy is small against the O(n^2 log n) transform,
- * and the library's own FFT_MEASURE sweep pays the same cost. */
+/* Time one 2-D forward transform of `size`, batching until clock() resolves
+ * the interval. `seed` is copied in before each repetition so the timed work
+ * sees finite data; the copy is small against the transform. */
 static double time_fft_2d(int size, complex_t** seed) {
     complex_t** work = allocate_2d_complex(size, size);
     if (!work) return -1.0;

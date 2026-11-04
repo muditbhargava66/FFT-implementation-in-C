@@ -1,7 +1,7 @@
 # Windows Support
 
 How to build and test this library on Windows, and what is actually verified
-there. Current release: **3.4.0 (3 November 2026)**.
+there. Current release: **3.5.0 (4 November 2026)**.
 
 ## What works
 
@@ -15,13 +15,14 @@ there. Current release: **3.4.0 (3 November 2026)**.
 
 The 3.4.0 Windows run executes both test binaries, the benchmarks and all nine
 demo programs (eight applications plus `gpu_benchmark`) with zero warnings.
-Windows application control on the verification machine blocked three of the
-optimized demo binaries by hash; the full demo sweep was run from a Release
-build with `-g` added, which changes the binaries but not the code paths. The
-tests and benchmarks ran from the plain Release build. The 3.3.0 CI rows are
-retained for history. CUDA cannot be built natively: nvcc on Windows requires
-MSVC as its host compiler, and MSVC cannot build the library's C11 `_Complex`
-kernels. Use WSL or Linux instead.
+Release 3.5.0 changes documentation and reporting only, so those results still
+describe the code. Windows application control on the verification machine
+blocked three of the optimized demo binaries by hash; the full demo sweep was
+run from a Release build with `-g` added, which changes the binaries but not
+the code paths. The tests and benchmarks ran from the plain Release build. The
+3.3.0 CI rows are retained for history. CUDA cannot be built natively: nvcc on
+Windows requires MSVC as its host compiler, and MSVC cannot build the library's
+C11 `_Complex` kernels. Use WSL or Linux instead.
 
 ### Why `cl.exe` is excluded
 

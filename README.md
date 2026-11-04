@@ -189,8 +189,10 @@ with that explanation and points at WSL.
 
 The 3.4.0 rows were run on the release branch; older rows are kept for history.
 Release 3.5.0 changes documentation and benchmark reporting only, so those
-binary results still describe the code. The Windows cross-build proves the
-sources compile and link, not that the binaries run. CPU performance figures in
+binary results still describe the code. Its CI macOS lane uses
+`macos-15-intel` because the arm64 pool was unavailable; Apple Silicon Metal
+is verified locally. The Windows cross-build proves the sources compile and
+link, not that the binaries run. CPU performance figures in
 `docs/performance.md` come from the WSL 3.4.0 build and the CUDA numbers from
 the GTX 1050, so they are not a cross-platform comparison.
 

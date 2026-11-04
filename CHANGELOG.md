@@ -34,6 +34,9 @@ API and wisdom format are unchanged from 3.4.0.
 - Tightened comments and prose across the algorithms, applications and docs:
   removed duplicated rationale, narrating comments and generated-looking
   release paragraphs.
+- The macOS CI lane runs on `macos-15-intel` because the arm64 pool repeatedly
+  failed to acquire a runner. The Metal backend still builds with `-Werror`;
+  Apple Silicon Metal remains verified locally.
 - Version bumped to 3.5.0 in CMake, `fft_version()`, the documentation and the
   security policy.
 

@@ -145,7 +145,9 @@ gh workflow run macos-arm64.yml
 ```
 
 The workflow lets you choose `macos-26` (default) or `macos-15` at dispatch
-time.
+time. If GitHub cancels the job before any steps run with "not acquired by
+Runner", the arm64 pool had no capacity; rerun it later or pick the other
+label.
 
 ### CUDA backend
 

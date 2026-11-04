@@ -5,16 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.5.0] - 2026-11-04
-
-3.5.0 is a documentation and reporting release. The kernels, planner, public
-API and wisdom format are unchanged from 3.4.0.
+## [Unreleased]
 
 ### Added
 - A manual `macOS Apple Silicon` workflow for GitHub-hosted arm64 runners. It
   runs the build, tests, benchmark, demos and Metal checks on `macos-26` or
   `macos-15` and never gates a pull request, because the arm64 pool is
   capacity-limited.
+
+## [3.5.0] - 2026-11-04
+
+3.5.0 is a documentation and reporting release. The kernels, planner, public
+API and wisdom format are unchanged from 3.4.0.
 
 ### Fixed
 - Corrected the performance claims to match the measured tables: AVX2 radix-4

@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 3.5.0 is a documentation and reporting release. The kernels, planner, public
 API and wisdom format are unchanged from 3.4.0.
 
+### Added
+- A manual `macOS Apple Silicon` workflow for GitHub-hosted arm64 runners. It
+  runs the build, tests, benchmark, demos and Metal checks on `macos-26` or
+  `macos-15` and never gates a pull request, because the arm64 pool is
+  capacity-limited.
+
 ### Fixed
 - Corrected the performance claims to match the measured tables: AVX2 radix-4
   is 3.8-5x radix-2 DIT from 4096 to 262144 points and 2.4-3.5x above that;

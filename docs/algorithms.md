@@ -9,7 +9,7 @@
 | Radix-4 | O(N log N) | power of 2 | faster from N=256 up |
 | Radix-4 AVX2 | O(N log N) | power of 2 | two complex values per AVX2 register; selected from N=4096 |
 | Radix-4 OpenMP | O(N log N) | power of 2 | opt-in; parallel butterflies; selected from N=524288 |
-| Four-Step | O(N log N) | power of 2 | cache-blocked; selected from N=1048576 |
+| Four-Step | O(N log N) | power of 2 | cache-blocked; `FFT_MEASURE` candidate |
 | Split-Radix | O(N log N) | power of 2 | fewest multiplications, still slower in wall time |
 | Bluestein | O(N log N) | any | about 9N complex scratch |
 | Mixed-Radix | O(N log N) | any | recursive Cooley-Tukey for composite lengths; direct DFT at a prime |
@@ -92,8 +92,7 @@ For large power-of-two lengths, `N = N1*N2` with the two factors near
 `sqrt(N)`. The input is treated as an N1-by-N2 row-major matrix: columns are
 gathered into cache-sized scratch and transformed, the result is multiplied by
 `W_N^(k1*c)`, rows are transformed, and a 16x16 tiled transpose returns natural
-order. Sub-transforms use the radix-4 kernel and share one scratch buffer. The
-planner selects this kernel from 1M points.
+order. Sub-transforms use the radix-4 kernel and share one scratch buffer.
 
 ```c
 four_step_fft(signal, n, FFT_FORWARD);
@@ -160,13 +159,13 @@ The planner uses these rules by default (`FFT_ESTIMATE`):
 
 The four-step kernel is not in the heuristic. It is a candidate for
 `FFT_MEASURE`, which picks it only when it actually wins; on the verification
-machines it was 20-40% slower than AVX2/OpenMP at 1M-4M points (see the
+machines it was 17-30% slower than AVX2/OpenMP at 1M-4M points (see the
 [Performance Guide](performance.md)).
 
 The fixed thresholds sit inside the measured crossovers on the verification
-machine; a different CPU can move them. `FFT_MEASURE` times the candidates
-instead of using the rules, then caches the result. It is worth using when a
-program plans once and executes many times.
+machine; a different CPU can move them. `FFT_MEASURE` times the candidates and
+keeps the heuristic unless a challenger wins the sweep by more than 15% and
+repeats the win in a paired re-run. The choice is then cached.
 
 `FFT_CONSERVE_MEMORY` takes precedence over measurement and selects in-place or
 low-scratch kernels.

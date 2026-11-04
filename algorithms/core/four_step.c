@@ -5,13 +5,9 @@
 /*
  * Four-step FFT for large power-of-two lengths.
  *
- * N = N1*N2; the input is an N1-by-N2 row-major matrix. Column FFTs, a twiddle
- * pass and row FFTs operate on cache-sized blocks, then one transpose returns
- * natural order. The twiddle pass W_N^(k1*c) is what makes the decomposition
- * exact; without it the two sets of small DFTs do not compose into DFT_N.
- *
- * Radix-4 sub-transforms share one scratch buffer, so blocking does not add an
- * allocation per row or column.
+ * N = N1*N2, treated as an N1-by-N2 row-major matrix: column FFTs, a twiddle
+ * pass, row FFTs, then one transpose back to natural order. Radix-4
+ * sub-transforms share one scratch buffer.
  */
 
 #define FOUR_STEP_TILE 16
@@ -41,7 +37,7 @@ fft_error_t four_step_fft(complex_t* x, int n, fft_direction dir) {
     }
 
     /* Gather each column into a contiguous buffer so radix-4 can transform
-     * it. The result is stored as A[k1][c]; the row pass reads it directly. */
+     * it. */
     for (int c = 0; c < n2; c++) {
         for (int r = 0; r < n1; r++)
             col[r] = x[r * n2 + c];
@@ -58,7 +54,6 @@ fft_error_t four_step_fft(complex_t* x, int n, fft_direction dir) {
             temp[r * n2 + c] = col[r];
     }
 
-    /* Twiddle A[k1][c] by W_N^(k1*c). */
     for (int r = 0; r < n1; r++) {
         const complex_t step = twiddle_factor(r, n, dir);
         complex_t w = 1.0;
@@ -68,7 +63,6 @@ fft_error_t four_step_fft(complex_t* x, int n, fft_direction dir) {
         }
     }
 
-    /* Row transforms. */
     for (int r = 0; r < n1; r++) {
         fft_error_t err = radix4_fft_scratch(&temp[r * n2], n2, dir, sub);
         if (err != FFT_OK) {

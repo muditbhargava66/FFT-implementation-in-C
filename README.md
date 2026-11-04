@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
 [![GPU](https://img.shields.io/badge/GPU-CUDA%20%7C%20Metal-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-3.4.0-success)]()
+[![Release](https://img.shields.io/badge/release-3.5.0-success)]()
 
 </div>
 
@@ -102,9 +102,9 @@ ctest --test-dir build-omp --output-on-failure
 
 The kernel parallelizes the butterfly loop over blocks, builds one twiddle table
 per stage, and falls back to scalar radix-4 below 524288 points or when only one
-thread is available. The planner selects it from 524288 points when it is
-compiled in and faster than AVX2. `test_threads` is registered as a CTest entry
-in this build only.
+thread is available. The planner selects it from 524288 points when OpenMP is
+compiled in and more than one thread is available. `test_threads` is registered
+as a CTest entry in this build only.
 
 ### Metal backend
 
@@ -187,21 +187,14 @@ with that explanation and points at WSL.
 | Windows 11 x86_64 | MinGW-w64 GCC 13.2.0 | 3.0.0 timing machine: 1361/1361 checks; benchmarks 52/0/2 |
 | Windows / Linux / macOS | MSVC `cl.exe` | Not supported (no C11 `_Complex`) |
 
-The 3.4.0 rows were run on the release branch: Windows 11 with MinGW-w64 GCC
-13.2.0 (default, OpenMP and `-Werror` builds) and Ubuntu 22.04 under WSL with
-GCC 11.4.0 (default, OpenMP `-Werror`, ASan/UBSan, and CUDA 11.5.119 on the GTX
-1050). The 3.3.0 and older rows are retained for history. The Windows x86_64
-cross-build row proves the sources compile and link, not that the binaries run.
-The 3.4.0 CI workflow keeps the eight 3.3.0 lanes and adds an OpenMP lane that
-builds with `-Werror` and runs the generated `test_threads`, for nine jobs
-total. The first push run (`cc15dca`, run 41640913349) passed all nine jobs.
-The macOS job is pinned to `macos-15` because `macos-latest` now resolves
-to macOS 26 Arm64 and queued during the macOS 14 retirement migration. CPU
-performance figures in `docs/performance.md` come from the WSL 3.4.0 build; the
-CUDA numbers come from the GTX 1050. They are not a cross-platform comparison.
-Windows application control on the verification machine blocked three of the
-optimized demo binaries by hash in the 3.3.0 run; all nine demos ran from the
-3.4.0 Release build.
+The 3.4.0 rows were run on the release branch; older rows are kept for history.
+Release 3.5.0 changes documentation and benchmark reporting only, so those
+binary results still describe the code. Its CI macOS lane uses
+`macos-15-intel` because the arm64 pool was unavailable; Apple Silicon Metal
+is verified locally. The Windows cross-build proves the sources compile and
+link, not that the binaries run. CPU performance figures in
+`docs/performance.md` come from the WSL 3.4.0 build and the CUDA numbers from
+the GTX 1050, so they are not a cross-platform comparison.
 
 ## Usage
 
@@ -245,10 +238,11 @@ printf("algorithm: %s\n", fft_plan_algorithm_name(plan));
 fft_destroy_plan(plan);
 ```
 
-`FFT_ESTIMATE` picks by size alone. `FFT_MEASURE` times the candidates that
-accept the length and caches the winner. `FFT_WISDOM_ONLY` reuses a cached
-choice or returns a NULL plan, so it never measures. `FFT_CONSERVE_MEMORY`
-prefers in-place kernels and takes precedence over `FFT_MEASURE`.
+`FFT_ESTIMATE` picks by size alone. `FFT_MEASURE` times the candidates and
+replaces the heuristic only on a repeatable win, then caches the choice.
+`FFT_WISDOM_ONLY` reuses a cached choice or returns a NULL plan, so it never
+measures. `FFT_CONSERVE_MEMORY` prefers in-place kernels and takes precedence
+over `FFT_MEASURE`.
 
 ### Real-valued transforms
 
@@ -300,19 +294,19 @@ fails later.
 ## Performance
 
 The [performance guide](docs/performance.md) has the measured ratios, the
-harness and the noise floor. On the 3.4.0 timing host, AVX2 radix-4 is 1.3-4x
-faster than radix-2 DIT from 4096 points up, OpenMP radix-4 adds about 24% at
-524288 points, and split-radix now measures 1.1-1.5x radix-2 DIT after the
-strided-input rewrite. The four-step kernel was 20-40% slower than AVX2 at
-1M-4M, so the planner leaves it to `FFT_MEASURE`. For non-power-of-two lengths
-Bluestein beat mixed-radix at every size tested, by 2.1x at 360 and 241x at the
-prime 1021; those two kernels are unchanged since 3.0, so the original ratios
-still apply.
+harness and the noise floor. On the 3.4.0 timing host, AVX2 radix-4 is 3.8-5x
+faster than radix-2 DIT from 4096 to 262144 points and 2.4-3.5x above that,
+OpenMP radix-4 adds about 24% at 524288 points, and split-radix now measures
+1.1-1.4x radix-2 DIT after the strided-input rewrite. The four-step kernel was
+17-30% slower than AVX2 at 1M-4M, so the planner leaves it to `FFT_MEASURE`.
+For non-power-of-two lengths Bluestein beat mixed-radix at every size tested,
+by 2.1x at 360 and 241x at the prime 1021; those two kernels are unchanged
+since 3.0, so the original ratios still apply.
 
 The Metal backend has a different profile. Each one-shot MPSGraph transform
 includes buffer setup and a blocking read-back, so on an M1 Pro
 `gpu_benchmark` measured GPU times of 6.9-11.0 ms across 1024 to 65536 points
-against 20 us to 2.1 ms on one CPU core: slower below 65536. At 1048576 points
+against 20 us to 2.1 ms on one CPU core: slower through 65536. At 1048576 points
 three runs gave 13.1-16.0 ms on the GPU against 48.0-60.1 ms on the CPU, or
 3.3-3.8x. Those are single-machine, one-shot measurements, not a batched
 comparison. The GPU path also computes in float32, with relative error growing
@@ -322,9 +316,8 @@ The CUDA backend measured on a GTX 1050 under WSL, double precision and also
 including upload and read-back, is slower than one CPU core for small
 transforms: 0.22x at 1024 and 0.67x at 4096. It reaches 3.56x at 65536 and
 13.41x at 1048576. Relative error against the CPU kernel was 1.4e-13 at 1024,
-1.2e-12 at 4096, 3.6e-11 at 65536 and 3.8e-9 at 1048576. Consumer Pascal cards
-have little FP64 throughput, so the crossover is later than for float32; this
-is a correctness-first backend, not a small-size accelerator.
+1.2e-12 at 4096, 3.6e-11 at 65536 and 3.8e-9 at 1048576. It is double-precision
+only, so the CPU-to-GPU crossover comes later than a float32 port would.
 
 ## Documentation
 

@@ -20,7 +20,7 @@ concurrency:
 # shell, so that job carries its own compiler matrix; the macOS job uses the
 # runner's default toolchain. A separate Linux job builds with ASan and UBSan.
 # The OpenMP lane builds the threaded kernel and runs the planner concurrency
-# test; the other lanes build the single-threaded fallback. The docs job is
+# test; the other lanes build without it. The docs job is
 # independent and builds MkDocs in strict mode.
 #
 # FFT_ENABLE_CUDA is exercised by a compile-and-skip job in an NVIDIA CUDA
@@ -117,10 +117,11 @@ jobs:
 
   macos:
     name: macOS / Apple Clang
-    # Pin the image: macos-latest moved to macOS 26 Arm64, and the macOS 14
-    # retirement on 2026-11-02 has made the alias queue for a runner. macOS 15
-    # is a supported Arm64 image with Metal/MPSGraph and Xcode 16.
-    runs-on: macos-15
+    # The arm64 macos-15 pool repeatedly failed to acquire a runner, so this
+    # lane uses the Intel image, which GitHub supports through 2027. The Metal
+    # backend still builds with -Werror here; the GPU test skips when the
+    # runner has no Metal device. Apple Silicon Metal is verified locally.
+    runs-on: macos-15-intel
     timeout-minutes: 25
 
     steps:

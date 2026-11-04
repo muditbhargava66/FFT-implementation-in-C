@@ -337,10 +337,7 @@ void benchmark_convolution() {
         
         fft_timer_t timer;
 
-        /* Batch until clock() resolves the interval. One 128-point convolution
-         * is microseconds, so single-shot timing read 0.00 ms on both sides and
-         * the speedup printed nan; at 1024 points the direct time rounded to
-         * 1.00 ms and the FFT time to zero, printing inf. Both functions only
+        /* Batch until clock() resolves the interval; both functions only
          * read x and h, so repeating them is safe. */
         int reps = 1;
         double total = 0.0;

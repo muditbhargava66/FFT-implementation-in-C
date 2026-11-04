@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(FFT_Implementation_C VERSION 3.4.0 LANGUAGES C)
+project(FFT_Implementation_C VERSION 3.5.0 LANGUAGES C)
 
 # Set C standard
 set(CMAKE_C_STANDARD 11)
@@ -85,7 +85,7 @@ if(FFT_ENABLE_CUDA)
             "The CUDA backend is not supported in native Windows builds. This "
             "library requires C11 _Complex, which MSVC does not provide, and "
             "nvcc on Windows requires MSVC as its host compiler. Use WSL or "
-            "Linux instead. Note that CUDA 13 also dropped Pascal (sm_61), so "
+            "Linux instead. CUDA 13 also dropped Pascal (sm_61), so "
             "a GTX 1050 needs CUDA 12.x in WSL.")
     endif()
     include(CheckLanguage)

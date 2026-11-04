@@ -39,15 +39,15 @@ Two limits worth remembering:
 ## Power-of-two sizes
 
 Cost relative to radix-2 DIT at the same `n`; below 1.00 is faster. One
-representative interleaved run. The OpenMP kernel falls back to scalar radix-4
-below 524288 points, which is why its ratio tracks the radix-4 column there.
+representative interleaved run. The OpenMP kernel is only timed from 524288
+points up; below that it calls scalar radix-4, so the Radix-4 column applies.
 
 | n | Radix-4 | AVX2 | OpenMP | Four-Step | Split-Radix |
 | --- | --- | --- | --- | --- | --- |
-| 4096 | 0.76 | **0.26** | 0.79 | 1.12 | 1.35 |
-| 16384 | 0.51 | **0.24** | 0.66 | 0.63 | 1.32 |
-| 65536 | 0.32 | **0.20** | 0.31 | 0.49 | 1.30 |
-| 262144 | 0.33 | **0.24** | 0.39 | 0.45 | 1.35 |
+| 4096 | 0.76 | **0.26** | — | 1.12 | 1.35 |
+| 16384 | 0.51 | **0.24** | — | 0.63 | 1.32 |
+| 65536 | 0.32 | **0.20** | — | 0.49 | 1.30 |
+| 262144 | 0.33 | **0.24** | — | 0.45 | 1.35 |
 | 524288 | 0.38 | 0.29 | **0.22** | 0.40 | 1.13 |
 | 1048576 | 0.41 | 0.37 | **0.35** | 0.45 | 1.31 |
 | 2097152 | 0.47 | 0.42 | 0.42 | 0.49 | 1.35 |
@@ -56,20 +56,21 @@ below 524288 points, which is why its ratio tracks the radix-4 column there.
 What the table says:
 
 - AVX2 radix-4 is the fastest single-threaded kernel from 4096 to 262144
-  points, at 1.3x to 4x the scalar radix-2 speed. The advantage over scalar
+  points, at 3.8x to 5x the scalar radix-2 speed. Its advantage over scalar
   radix-4 shrinks from about 3x at 4096 to 10-15% at 1M, where memory traffic
   binds.
 - OpenMP radix-4 wins at 524288 by about 24% over AVX2 on this 12-thread host,
   then ties it from 1M up. Scaling beyond one socket was not measured.
-- Four-step was 20-40% slower than AVX2 on this host at 1M-4M. It lost to AVX2
+- Four-step was 17-30% slower than AVX2 on this host at 1M-4M. It lost to AVX2
   on the Windows host as well, and to OpenMP where that kernel was compiled in,
   so the planner leaves it to `FFT_MEASURE` rather than selecting it by size.
-- Split-radix now measures 1.1-1.5x radix-2 DIT, down from 2.0-2.9x before the
+- Split-radix now measures 1.1-1.4x radix-2 DIT, down from 2.0-2.9x before the
   strided-input rewrite. It still loses to radix-4 because the recursion carries
   more memory traffic per stage.
-- Radix-4 beats radix-2 DIT from 4096 points up by a wide margin on this host.
-  The planner still switches at 256 points because the crossover moves with the
-  compiler and the digit-reversal buffer's cost.
+- Radix-4 beats radix-2 DIT at every size in the table, by 1.3x at 4096, about
+  3x at 65536-262144, and 2.0-2.6x above that. The planner still switches at
+  256 points because the crossover moves with the compiler and the
+  digit-reversal buffer's cost.
 
 ## Non-power-of-two sizes
 

@@ -1,6 +1,6 @@
 # Quick Start
 
-This is a short tour of the library for version 3.4.0. The full setup notes are
+This is a short tour of the library for version 3.5.0. The full setup notes are
 in [Getting Started](getting-started.md).
 
 ## Build
@@ -126,7 +126,7 @@ The individual kernels are public. For power-of-two lengths:
 
 ```c
 radix2_dit_fft(signal, 1024, FFT_FORWARD);   /* in-place, no scratch */
-radix4_fft(signal, 1024, FFT_FORWARD);       /* faster from n=512 up */
+radix4_fft(signal, 1024, FFT_FORWARD);       /* faster above 256 points */
 split_radix_fft(signal, 1024, FFT_FORWARD);  /* fewest multiplications */
 ```
 
